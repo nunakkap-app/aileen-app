@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { NavBar } from "@/components/NavBar";
 import { SubjectPicker } from "@/components/SubjectPicker";
 import { CalendarMonth } from "@/components/CalendarMonth";
-import { categoryLabel } from "@/lib/subjects";
+import { categoryColor, categoryLabel, modeDotColor, modeLabel } from "@/lib/subjects";
 import {
   addChild,
   addLessonSchedule,
@@ -40,7 +40,7 @@ type LessonSchedule = {
 type EnrollmentForCalendar = {
   id: string;
   mode: "lesson" | "practice";
-  subjects: { name: string } | null;
+  subjects: { name: string; category: string } | null;
   practice_schedules: PracticeSchedule[] | null;
   lesson_schedules: LessonSchedule[] | null;
 };
@@ -51,6 +51,7 @@ function buildCalendarItems(enrollmentsForChild: EnrollmentForCalendar[]) {
       id: s.id,
       enrollmentId: e.id,
       label: e.subjects?.name ?? "",
+      category: e.subjects?.category ?? "academic",
       kind: "practice" as const,
       weekdays: s.weekdays,
       hoursPerSession: s.hours_per_session,
@@ -63,6 +64,7 @@ function buildCalendarItems(enrollmentsForChild: EnrollmentForCalendar[]) {
       id: s.id,
       enrollmentId: e.id,
       label: e.subjects?.name ?? "",
+      category: e.subjects?.category ?? "academic",
       kind: "lesson" as const,
       weekdays: [s.weekday],
       timeRange: `${s.start_time.slice(0, 5)}-${s.end_time.slice(0, 5)}`,
@@ -290,26 +292,25 @@ export default async function DashboardPage() {
                   </p>
 
                   <div className="mb-4 mt-2 flex flex-wrap gap-2">
-                    {enrollmentsByChild.get(c.id)?.map((e) => (
-                      <span
-                        key={e.id}
-                        className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700"
-                      >
-                        {e.subjects?.name} · {categoryLabel[e.subjects?.category]} ·{" "}
-                        <span className={e.mode === "lesson" ? "text-amber-600" : "text-indigo-600"}>
-                          {e.mode === "lesson" ? "เรียน" : "ซ้อม"}
+                    {enrollmentsByChild.get(c.id)?.map((e) => {
+                      const colors = categoryColor[e.subjects?.category ?? "academic"] ?? categoryColor.academic;
+                      return (
+                        <span
+                          key={e.id}
+                          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${colors.bg} ${colors.text}`}
+                        >
+                          <span className={`h-1.5 w-1.5 rounded-full ${modeDotColor[e.mode]}`} />
+                          {e.subjects?.name} · {categoryLabel[e.subjects?.category]} · {modeLabel[e.mode]}
+                          {e.subjects?.profiles?.full_name && <span className="opacity-70">· ครู {e.subjects.profiles.full_name}</span>}
+                          <form action={deleteEnrollment}>
+                            <input type="hidden" name="id" value={e.id} />
+                            <button className="opacity-60 hover:text-red-500 hover:opacity-100" type="submit" title="ลบกิจกรรม">
+                              ×
+                            </button>
+                          </form>
                         </span>
-                        {e.subjects?.profiles?.full_name && (
-                          <span className="text-indigo-400">· ครู {e.subjects.profiles.full_name}</span>
-                        )}
-                        <form action={deleteEnrollment}>
-                          <input type="hidden" name="id" value={e.id} />
-                          <button className="text-indigo-400 hover:text-red-500" type="submit" title="ลบกิจกรรม">
-                            ×
-                          </button>
-                        </form>
-                      </span>
-                    ))}
+                      );
+                    })}
                     {!enrollmentsByChild.get(c.id)?.length && (
                       <span className="text-sm text-slate-400">ยังไม่มีกิจกรรม</span>
                     )}
@@ -498,23 +499,24 @@ export default async function DashboardPage() {
                 <div key={childId} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <p className="mb-2 font-medium text-slate-900">{childName}</p>
                   <div className="mb-4 flex flex-wrap gap-2">
-                    {items?.map((e) => (
-                      <span
-                        key={e.id}
-                        className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700"
-                      >
-                        {e.subjects?.name} · {categoryLabel[e.subjects?.category]} ·{" "}
-                        <span className={e.mode === "lesson" ? "text-amber-600" : "text-indigo-600"}>
-                          {e.mode === "lesson" ? "เรียน" : "ซ้อม"}
+                    {items?.map((e) => {
+                      const colors = categoryColor[e.subjects?.category ?? "academic"] ?? categoryColor.academic;
+                      return (
+                        <span
+                          key={e.id}
+                          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${colors.bg} ${colors.text}`}
+                        >
+                          <span className={`h-1.5 w-1.5 rounded-full ${modeDotColor[e.mode]}`} />
+                          {e.subjects?.name} · {categoryLabel[e.subjects?.category]} · {modeLabel[e.mode]}
+                          <form action={deleteEnrollment}>
+                            <input type="hidden" name="id" value={e.id} />
+                            <button className="opacity-60 hover:text-red-500 hover:opacity-100" type="submit" title="ลบกิจกรรม">
+                              ×
+                            </button>
+                          </form>
                         </span>
-                        <form action={deleteEnrollment}>
-                          <input type="hidden" name="id" value={e.id} />
-                          <button className="text-indigo-400 hover:text-red-500" type="submit" title="ลบกิจกรรม">
-                            ×
-                          </button>
-                        </form>
-                      </span>
-                    ))}
+                      );
+                    })}
                   </div>
                   {(() => {
                     const built = buildCalendarItems(items ?? []);

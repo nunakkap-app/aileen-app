@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import { cancelOccurrence } from "@/app/dashboard/session/actions";
+import { categoryColor, categoryLabel, modeDotColor } from "@/lib/subjects";
 
 type Item = {
   id: string;
   enrollmentId: string;
   label: string;
+  category: string;
   kind: "lesson" | "practice";
   weekdays: number[];
   hoursPerSession?: number;
@@ -72,9 +74,14 @@ export function CalendarMonth({ items, excluded = [] }: { items: Item[]; exclude
           ›
         </button>
       </div>
-      <div className="mb-2 flex gap-3 text-xs text-slate-500">
-        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400" /> เรียน</span>
-        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-indigo-400" /> ซ้อม</span>
+      <div className="mb-2 flex flex-wrap gap-3 text-xs text-slate-500">
+        {Object.entries(categoryColor).map(([cat, c]) => (
+          <span key={cat} className="inline-flex items-center gap-1">
+            <span className={`h-2 w-2 rounded-full ${c.dot}`} /> {categoryLabel[cat]}
+          </span>
+        ))}
+        <span className="inline-flex items-center gap-1"><span className={`h-2 w-2 rounded-full ${modeDotColor.lesson}`} /> เรียน</span>
+        <span className="inline-flex items-center gap-1"><span className={`h-2 w-2 rounded-full ${modeDotColor.practice}`} /> ซ้อม</span>
       </div>
       <div className="mb-1 grid grid-cols-7 gap-1 text-center text-xs text-slate-400">
         {weekdayLabels.map((w) => (
@@ -87,28 +94,30 @@ export function CalendarMonth({ items, excluded = [] }: { items: Item[]; exclude
             {day && (
               <>
                 <p className="mb-1 text-slate-400">{day}</p>
-                {itemsForDay(day).map((it) => (
-                  <div key={it.id} className="mb-0.5 flex items-center gap-0.5">
-                    <a
-                      href={`/dashboard/session/${it.enrollmentId}/${dateStrFor(day)}`}
-                      className={`flex-1 truncate rounded px-1 py-0.5 ${
-                        it.kind === "lesson"
-                          ? "bg-amber-100 text-amber-700 hover:bg-amber-200"
-                          : "bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
-                      }`}
-                    >
-                      {it.label} · {it.kind === "lesson" ? it.timeRange : `${it.hoursPerSession}ชม.`}
-                    </a>
-                    <button
-                      type="button"
-                      title="ยกเลิกวันนี้"
-                      onClick={() => cancelOccurrence(it.id, dateStrFor(day))}
-                      className="text-slate-400 hover:text-red-500"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
+                {itemsForDay(day).map((it) => {
+                  const colors = categoryColor[it.category] ?? categoryColor.academic;
+                  return (
+                    <div key={it.id} className="mb-0.5 flex items-center gap-0.5">
+                      <a
+                        href={`/dashboard/session/${it.enrollmentId}/${dateStrFor(day)}`}
+                        className={`flex flex-1 items-center gap-1 truncate rounded px-1 py-0.5 ${colors.bg} ${colors.text} ${colors.hoverBg}`}
+                      >
+                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${modeDotColor[it.kind]}`} />
+                        <span className="truncate">
+                          {it.label} · {it.kind === "lesson" ? it.timeRange : `${it.hoursPerSession}ชม.`}
+                        </span>
+                      </a>
+                      <button
+                        type="button"
+                        title="ยกเลิกวันนี้"
+                        onClick={() => cancelOccurrence(it.id, dateStrFor(day))}
+                        className="text-slate-400 hover:text-red-500"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
               </>
             )}
           </div>
