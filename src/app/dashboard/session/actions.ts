@@ -9,7 +9,7 @@ export async function cancelOccurrence(scheduleId: string, date: string) {
     practice_schedule_id: scheduleId,
     exception_date: date,
   });
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/manage");
 }
 
 async function getOrCreateLog(

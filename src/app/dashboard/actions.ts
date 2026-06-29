@@ -14,7 +14,7 @@ export async function addChild(formData: FormData) {
     birthdate: (formData.get("birthdate") as string) || null,
   });
 
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/manage");
 }
 
 export async function inviteCoach(formData: FormData) {
@@ -22,17 +22,56 @@ export async function inviteCoach(formData: FormData) {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return;
 
+  const childId = formData.get("child_id") as string;
+  const category = formData.get("category") as string;
+  const subjectName = formData.get("subject_name") as string;
+  const mode = (formData.get("mode") as string) || "practice";
+
+  if (formData.get("manual") === "true") {
+    // Coach doesn't have a user account yet — parent fills in on their behalf.
+    const coachName = formData.get("coach_name") as string;
+
+    await supabase
+      .from("user_roles")
+      .upsert({ user_id: auth.user.id, role: "coach" }, { onConflict: "user_id,role" });
+
+    let { data: subject } = await supabase
+      .from("subjects")
+      .select("id")
+      .eq("coach_id", auth.user.id)
+      .eq("name", subjectName)
+      .eq("category", category)
+      .eq("placeholder_coach_name", coachName)
+      .maybeSingle();
+
+    if (!subject) {
+      const { data: created } = await supabase
+        .from("subjects")
+        .insert({ coach_id: auth.user.id, name: subjectName, category, placeholder_coach_name: coachName })
+        .select("id")
+        .single();
+      subject = created;
+    }
+
+    if (subject) {
+      await supabase.from("enrollments").insert({ child_id: childId, subject_id: subject.id, mode });
+    }
+
+    revalidatePath("/dashboard/manage");
+    return;
+  }
+
   await supabase.from("invitations").insert({
     parent_id: auth.user.id,
-    child_id: formData.get("child_id") as string,
+    child_id: childId,
     coach_email: formData.get("coach_email") as string,
-    category: formData.get("category") as string,
-    subject_name: formData.get("subject_name") as string,
+    category,
+    subject_name: subjectName,
     note: (formData.get("note") as string) || null,
-    mode: (formData.get("mode") as string) || "practice",
+    mode,
   });
 
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/manage");
 }
 
 export async function addPracticeSchedule(formData: FormData) {
@@ -49,13 +88,13 @@ export async function addPracticeSchedule(formData: FormData) {
     note: (formData.get("note") as string) || null,
   });
 
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/manage");
 }
 
 export async function deletePracticeSchedule(formData: FormData) {
   const supabase = await createClient();
   await supabase.from("practice_schedules").delete().eq("id", formData.get("id") as string);
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/manage");
 }
 
 export async function addLessonSchedule(formData: FormData) {
@@ -71,13 +110,13 @@ export async function addLessonSchedule(formData: FormData) {
     note: (formData.get("note") as string) || null,
   });
 
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/manage");
 }
 
 export async function deleteLessonSchedule(formData: FormData) {
   const supabase = await createClient();
   await supabase.from("lesson_schedules").delete().eq("id", formData.get("id") as string);
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/manage");
 }
 
 export async function createAssignment(formData: FormData) {
@@ -116,7 +155,7 @@ export async function createAssignment(formData: FormData) {
     });
   }
 
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/manage");
 }
 
 export async function submitHomework(formData: FormData) {
@@ -131,13 +170,13 @@ export async function submitHomework(formData: FormData) {
     })
     .eq("id", formData.get("submission_id") as string);
 
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/manage");
 }
 
 export async function deleteEnrollment(formData: FormData) {
   const supabase = await createClient();
   await supabase.from("enrollments").delete().eq("id", formData.get("id") as string);
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/manage");
 }
 
 export async function selfCoach(formData: FormData) {
@@ -178,7 +217,7 @@ export async function selfCoach(formData: FormData) {
     });
   }
 
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/manage");
 }
 
 export async function respondInvitation(formData: FormData) {
@@ -233,5 +272,5 @@ export async function respondInvitation(formData: FormData) {
     .update({ status: decision, responded_at: new Date().toISOString() })
     .eq("id", invitationId);
 
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/manage");
 }

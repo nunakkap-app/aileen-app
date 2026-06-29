@@ -24,7 +24,7 @@ export async function saveCoachProfile(formData: FormData) {
   });
 
   revalidatePath("/coaches");
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/manage");
 }
 
 export async function sendRequest(formData: FormData) {
@@ -42,7 +42,7 @@ export async function sendRequest(formData: FormData) {
   });
 
   revalidatePath("/coaches");
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/manage");
 }
 
 export async function respondRequest(formData: FormData) {
@@ -96,5 +96,5 @@ export async function respondRequest(formData: FormData) {
     .update({ status: decision, responded_at: new Date().toISOString() })
     .eq("id", requestId);
 
-  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/manage");
 }

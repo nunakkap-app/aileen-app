@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { NavBar } from "@/components/NavBar";
 import { SubjectPicker } from "@/components/SubjectPicker";
+import { ManualCoachToggle } from "@/components/ManualCoachToggle";
 import { CalendarMonth } from "@/components/CalendarMonth";
 import { categoryColor, categoryLabel, modeDotColor, modeLabel } from "@/lib/subjects";
 import {
@@ -211,7 +212,7 @@ export default async function ManagePage() {
   const { data: enrollments } = childIds.length
     ? await supabase
         .from("enrollments")
-        .select("*, subjects(name, category, profiles(full_name)), children(full_name), practice_schedules(*, practice_exceptions(*)), lesson_schedules(*)")
+        .select("*, subjects(name, category, placeholder_coach_name, profiles(full_name)), children(full_name), practice_schedules(*, practice_exceptions(*)), lesson_schedules(*)")
         .in("child_id", childIds)
     : { data: null };
 
@@ -301,7 +302,11 @@ export default async function ManagePage() {
                         >
                           <span className={`h-1.5 w-1.5 rounded-full ${modeDotColor[e.mode]}`} />
                           {e.subjects?.name} · {categoryLabel[e.subjects?.category]} · {modeLabel[e.mode]}
-                          {e.subjects?.profiles?.full_name && <span className="opacity-70">· ครู {e.subjects.profiles.full_name}</span>}
+                          {e.subjects?.placeholder_coach_name ? (
+                            <span className="opacity-70">· ครู {e.subjects.placeholder_coach_name} (กรอกแทน)</span>
+                          ) : (
+                            e.subjects?.profiles?.full_name && <span className="opacity-70">· ครู {e.subjects.profiles.full_name}</span>
+                          )}
                           <form action={deleteEnrollment}>
                             <input type="hidden" name="id" value={e.id} />
                             <button className="opacity-60 hover:text-red-500 hover:opacity-100" type="submit" title="ลบกิจกรรม">
@@ -341,17 +346,11 @@ export default async function ManagePage() {
 
                   <details className="group mb-2">
                     <summary className="cursor-pointer text-sm font-medium text-indigo-600">
-                      + แอดครู (เชิญด้วยอีเมล)
+                      + แอดครู
                     </summary>
                     <form action={inviteCoach} className="mt-3 flex flex-wrap gap-2">
                       <input type="hidden" name="child_id" value={c.id} />
-                      <input
-                        name="coach_email"
-                        type="email"
-                        placeholder="อีเมลครู/โค้ช"
-                        required
-                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-                      />
+                      <ManualCoachToggle className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
                       <SubjectPicker className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
                       <fieldset className="flex items-center gap-3 text-xs text-slate-600">
                         <label className="flex items-center gap-1">
