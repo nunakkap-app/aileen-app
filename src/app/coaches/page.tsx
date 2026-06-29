@@ -1,12 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { NavBar } from "@/components/NavBar";
+import { SubjectPicker } from "@/components/SubjectPicker";
+import { categoryLabel } from "@/lib/subjects";
 import { sendRequest } from "./actions";
-
-const categoryLabel: Record<string, string> = {
-  sport: "กีฬา",
-  music: "ดนตรี",
-  academic: "วิชาการ",
-};
 
 export default async function CoachesPage({
   searchParams,
@@ -81,12 +77,7 @@ export default async function CoachesPage({
                       <option key={c.id} value={c.id}>{c.full_name}</option>
                     ))}
                   </select>
-                  <select name="category" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm">
-                    <option value="sport">กีฬา</option>
-                    <option value="music">ดนตรี</option>
-                    <option value="academic">วิชาการ</option>
-                  </select>
-                  <input name="subject_name" placeholder="วิชา/กิจกรรม" required className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
+                  <SubjectPicker className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
                   <input name="note" placeholder="สิ่งที่ต้องการ" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
                   <button className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700" type="submit">
                     ขอเรียน

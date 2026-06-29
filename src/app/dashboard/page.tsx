@@ -1,13 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { NavBar } from "@/components/NavBar";
-import { addChild, inviteCoach, respondInvitation, selfCoach } from "./actions";
+import { SubjectPicker } from "@/components/SubjectPicker";
+import { categoryLabel } from "@/lib/subjects";
+import { addChild, addSchedule, inviteCoach, respondInvitation, selfCoach } from "./actions";
 import { saveCoachProfile, respondRequest } from "@/app/coaches/actions";
-
-const categoryLabel: Record<string, string> = {
-  sport: "กีฬา",
-  music: "ดนตรี",
-  academic: "วิชาการ",
-};
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -31,8 +27,9 @@ export default async function DashboardPage() {
   const { data: enrollments } = childIds.length
     ? await supabase
         .from("enrollments")
-        .select("*, subjects(name, category, profiles(full_name))")
+        .select("*, subjects(name, category, profiles(full_name)), children(full_name), schedules(*)")
         .in("child_id", childIds)
+        .order("start_time", { foreignTable: "schedules", ascending: true })
     : { data: null };
 
   const enrollmentsByChild = new Map<string, typeof enrollments>();
@@ -41,6 +38,17 @@ export default async function DashboardPage() {
     list.push(e);
     enrollmentsByChild.set(e.child_id, list);
   });
+
+  const { data: coachSubjectIds } = isCoach
+    ? await supabase.from("subjects").select("id").eq("coach_id", auth.user.id)
+    : { data: null };
+
+  const { data: coachEnrollments } = coachSubjectIds?.length
+    ? await supabase
+        .from("enrollments")
+        .select("*, subjects(name, category), children(full_name), schedules(*)")
+        .in("subject_id", coachSubjectIds.map((s) => s.id))
+    : { data: null };
 
   const { data: sentInvitations } = isParent
     ? await supabase.from("invitations").select("*, children(full_name)").order("created_at", { ascending: false })
@@ -115,17 +123,7 @@ export default async function DashboardPage() {
                         required
                         className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
                       />
-                      <select name="category" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm">
-                        <option value="sport">กีฬา</option>
-                        <option value="music">ดนตรี</option>
-                        <option value="academic">วิชาการ</option>
-                      </select>
-                      <input
-                        name="subject_name"
-                        placeholder="วิชา/กิจกรรม เช่น เปียโน"
-                        required
-                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-                      />
+                      <SubjectPicker className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
                       <input
                         name="note"
                         placeholder="สิ่งที่ต้องการ (ถ้ามี)"
@@ -146,17 +144,7 @@ export default async function DashboardPage() {
                     </summary>
                     <form action={selfCoach} className="mt-3 flex flex-wrap gap-2">
                       <input type="hidden" name="child_id" value={c.id} />
-                      <select name="category" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm">
-                        <option value="sport">กีฬา</option>
-                        <option value="music">ดนตรี</option>
-                        <option value="academic">วิชาการ</option>
-                      </select>
-                      <input
-                        name="subject_name"
-                        placeholder="วิชา/กิจกรรม เช่น คณิตศาสตร์"
-                        required
-                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-                      />
+                      <SubjectPicker className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
                       <button
                         className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
                         type="submit"
@@ -210,6 +198,42 @@ export default async function DashboardPage() {
                 </ul>
               </div>
             )}
+          </section>
+        )}
+
+        {isParent && !!enrollments?.length && (
+          <section className="mb-10">
+            <h2 className="mb-4 text-xl font-semibold text-slate-900">ตารางซ้อม/เรียน</h2>
+            <div className="flex flex-col gap-3">
+              {enrollments.map((e) => (
+                <div key={e.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <p className="mb-2 text-sm font-medium text-slate-900">
+                    {e.children?.full_name} · {e.subjects?.name} ({categoryLabel[e.subjects?.category]})
+                  </p>
+                  <ul className="mb-3 flex flex-col gap-1 text-sm text-slate-600">
+                    {e.schedules?.map((s: { id: string; start_time: string; end_time: string; location: string | null }) => (
+                      <li key={s.id}>
+                        {new Date(s.start_time).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" })}
+                        {" – "}
+                        {new Date(s.end_time).toLocaleTimeString("th-TH", { timeStyle: "short" })}
+                        {s.location ? ` · ${s.location}` : ""}
+                      </li>
+                    ))}
+                    {!e.schedules?.length && <li className="text-slate-400">ยังไม่มีตาราง</li>}
+                  </ul>
+                  <form action={addSchedule} className="flex flex-wrap items-center gap-2">
+                    <input type="hidden" name="enrollment_id" value={e.id} />
+                    <input name="date" type="date" required className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
+                    <input name="start_time" type="time" required className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
+                    <input name="end_time" type="time" required className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
+                    <input name="location" placeholder="สถานที่" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
+                    <button className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800" type="submit">
+                      เพิ่มตาราง
+                    </button>
+                  </form>
+                </div>
+              ))}
+            </div>
           </section>
         )}
 
@@ -308,6 +332,42 @@ export default async function DashboardPage() {
                 </div>
               ))}
               {!pendingRequests?.length && <p className="text-sm text-slate-400">ยังไม่มีคำขอ</p>}
+            </div>
+          </section>
+        )}
+
+        {isCoach && !!coachEnrollments?.length && (
+          <section className="mb-10">
+            <h2 className="mb-4 text-xl font-semibold text-slate-900">ตารางที่ฉันสอน</h2>
+            <div className="flex flex-col gap-3">
+              {coachEnrollments.map((e) => (
+                <div key={e.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <p className="mb-2 text-sm font-medium text-slate-900">
+                    {e.children?.full_name} · {e.subjects?.name} ({categoryLabel[e.subjects?.category]})
+                  </p>
+                  <ul className="mb-3 flex flex-col gap-1 text-sm text-slate-600">
+                    {e.schedules?.map((s: { id: string; start_time: string; end_time: string; location: string | null }) => (
+                      <li key={s.id}>
+                        {new Date(s.start_time).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" })}
+                        {" – "}
+                        {new Date(s.end_time).toLocaleTimeString("th-TH", { timeStyle: "short" })}
+                        {s.location ? ` · ${s.location}` : ""}
+                      </li>
+                    ))}
+                    {!e.schedules?.length && <li className="text-slate-400">ยังไม่มีตาราง</li>}
+                  </ul>
+                  <form action={addSchedule} className="flex flex-wrap items-center gap-2">
+                    <input type="hidden" name="enrollment_id" value={e.id} />
+                    <input name="date" type="date" required className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
+                    <input name="start_time" type="time" required className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
+                    <input name="end_time" type="time" required className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
+                    <input name="location" placeholder="สถานที่" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
+                    <button className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800" type="submit">
+                      เพิ่มตาราง
+                    </button>
+                  </form>
+                </div>
+              ))}
             </div>
           </section>
         )}

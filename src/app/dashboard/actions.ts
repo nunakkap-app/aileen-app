@@ -34,6 +34,25 @@ export async function inviteCoach(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
+export async function addSchedule(formData: FormData) {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth.user) return;
+
+  const date = formData.get("date") as string;
+  const startTime = formData.get("start_time") as string;
+  const endTime = formData.get("end_time") as string;
+
+  await supabase.from("schedules").insert({
+    enrollment_id: formData.get("enrollment_id") as string,
+    start_time: `${date}T${startTime}:00`,
+    end_time: `${date}T${endTime}:00`,
+    location: (formData.get("location") as string) || null,
+  });
+
+  revalidatePath("/dashboard");
+}
+
 export async function selfCoach(formData: FormData) {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
