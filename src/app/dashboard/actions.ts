@@ -107,6 +107,12 @@ export async function submitHomework(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
+export async function deleteEnrollment(formData: FormData) {
+  const supabase = await createClient();
+  await supabase.from("enrollments").delete().eq("id", formData.get("id") as string);
+  revalidatePath("/dashboard");
+}
+
 export async function selfCoach(formData: FormData) {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();

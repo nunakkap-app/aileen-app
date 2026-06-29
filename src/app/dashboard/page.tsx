@@ -7,6 +7,7 @@ import {
   addChild,
   addPracticeSchedule,
   createAssignment,
+  deleteEnrollment,
   deletePracticeSchedule,
   inviteCoach,
   respondInvitation,
@@ -22,6 +23,21 @@ type PracticeSchedule = {
   end_date: string | null;
   note: string | null;
 };
+
+function buildCalendarItems(
+  enrollmentsForChild: { id: string; subjects: { name: string } | null; practice_schedules: PracticeSchedule[] | null }[],
+) {
+  return enrollmentsForChild.flatMap((e) =>
+    (e.practice_schedules ?? []).map((s) => ({
+      id: s.id,
+      label: e.subjects?.name ?? "",
+      weekdays: s.weekdays,
+      hoursPerSession: s.hours_per_session,
+      startDate: s.start_date,
+      endDate: s.end_date,
+    })),
+  );
+}
 
 const weekdayOptions = [
   { value: 1, label: "จ" },
@@ -163,29 +179,13 @@ export default async function DashboardPage() {
         .order("due_date", { ascending: true })
     : { data: null };
 
-  const parentCalendarItems =
-    enrollments?.flatMap((e) =>
-      (e.practice_schedules ?? []).map((s: PracticeSchedule) => ({
-        id: s.id,
-        label: `${e.children?.full_name} · ${e.subjects?.name}`,
-        weekdays: s.weekdays,
-        hoursPerSession: s.hours_per_session,
-        startDate: s.start_date,
-        endDate: s.end_date,
-      })),
-    ) ?? [];
-
-  const coachCalendarItems =
-    coachEnrollments?.flatMap((e) =>
-      (e.practice_schedules ?? []).map((s: PracticeSchedule) => ({
-        id: s.id,
-        label: `${e.children?.full_name} · ${e.subjects?.name}`,
-        weekdays: s.weekdays,
-        hoursPerSession: s.hours_per_session,
-        startDate: s.start_date,
-        endDate: s.end_date,
-      })),
-    ) ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const coachEnrollmentsByChild = new Map<string, { childName: string; items: any[] }>();
+  coachEnrollments?.forEach((e) => {
+    const entry = coachEnrollmentsByChild.get(e.child_id) ?? ({ childName: e.children?.full_name ?? "", items: [] } as { childName: string; items: typeof e[] });
+    entry.items.push(e);
+    coachEnrollmentsByChild.set(e.child_id, entry);
+  });
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -213,12 +213,32 @@ export default async function DashboardPage() {
                         {e.subjects?.profiles?.full_name && (
                           <span className="text-indigo-400">· ครู {e.subjects.profiles.full_name}</span>
                         )}
+                        <form action={deleteEnrollment}>
+                          <input type="hidden" name="id" value={e.id} />
+                          <button className="text-indigo-400 hover:text-red-500" type="submit" title="ลบกิจกรรม">
+                            ×
+                          </button>
+                        </form>
                       </span>
                     ))}
                     {!enrollmentsByChild.get(c.id)?.length && (
                       <span className="text-sm text-slate-400">ยังไม่มีกิจกรรม</span>
                     )}
                   </div>
+
+                  {!!enrollmentsByChild.get(c.id)?.length && (
+                    <div className="mb-4">
+                      <CalendarMonth items={buildCalendarItems(enrollmentsByChild.get(c.id) ?? [])} />
+                      <div className="mt-3 flex flex-col gap-3">
+                        {enrollmentsByChild.get(c.id)?.map((e) => (
+                          <div key={e.id} className="rounded-xl border border-slate-200 p-3">
+                            <p className="mb-2 text-sm font-medium text-slate-700">{e.subjects?.name}</p>
+                            <PracticeScheduleCard enrollmentId={e.id} practiceSchedules={e.practice_schedules ?? []} />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <details className="group mb-2">
                     <summary className="cursor-pointer text-sm font-medium text-indigo-600">
@@ -311,25 +331,6 @@ export default async function DashboardPage() {
           </section>
         )}
 
-        {isParent && !!enrollments?.length && (
-          <section className="mb-10">
-            <h2 className="mb-4 text-xl font-semibold text-slate-900">ตารางซ้อม/เรียน</h2>
-            <div className="mb-4">
-              <CalendarMonth items={parentCalendarItems} />
-            </div>
-            <div className="flex flex-col gap-3">
-              {enrollments.map((e) => (
-                <div key={e.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <p className="mb-2 text-sm font-medium text-slate-900">
-                    {e.children?.full_name} · {e.subjects?.name} ({categoryLabel[e.subjects?.category]})
-                  </p>
-                  <PracticeScheduleCard enrollmentId={e.id} practiceSchedules={e.practice_schedules ?? []} />
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
         {isParent && !!parentAssignments?.length && (
           <section className="mb-10">
             <h2 className="mb-4 text-xl font-semibold text-slate-900">การบ้าน</h2>
@@ -372,32 +373,35 @@ export default async function DashboardPage() {
         {isCoach && !!coachEnrollments?.length && (
           <section className="mb-10">
             <h2 className="mb-4 text-xl font-semibold text-slate-900">นักเรียนของฉัน</h2>
-            <div className="flex flex-col gap-3">
-              {coachEnrollments.map((e) => (
-                <div key={e.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <p className="text-sm font-medium text-slate-900">{e.children?.full_name}</p>
-                  <p className="text-sm text-slate-500">
-                    {e.subjects?.name} · {categoryLabel[e.subjects?.category]}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {isCoach && !!coachEnrollments?.length && (
-          <section className="mb-10">
-            <h2 className="mb-4 text-xl font-semibold text-slate-900">ตารางที่ฉันสอน</h2>
-            <div className="mb-4">
-              <CalendarMonth items={coachCalendarItems} />
-            </div>
-            <div className="flex flex-col gap-3">
-              {coachEnrollments.map((e) => (
-                <div key={e.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <p className="mb-2 text-sm font-medium text-slate-900">
-                    {e.children?.full_name} · {e.subjects?.name} ({categoryLabel[e.subjects?.category]})
-                  </p>
-                  <PracticeScheduleCard enrollmentId={e.id} practiceSchedules={e.practice_schedules ?? []} />
+            <div className="flex flex-col gap-4">
+              {[...coachEnrollmentsByChild.entries()].map(([childId, { childName, items }]) => (
+                <div key={childId} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <p className="mb-2 font-medium text-slate-900">{childName}</p>
+                  <div className="mb-4 flex flex-wrap gap-2">
+                    {items?.map((e) => (
+                      <span
+                        key={e.id}
+                        className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700"
+                      >
+                        {e.subjects?.name} · {categoryLabel[e.subjects?.category]}
+                        <form action={deleteEnrollment}>
+                          <input type="hidden" name="id" value={e.id} />
+                          <button className="text-indigo-400 hover:text-red-500" type="submit" title="ลบกิจกรรม">
+                            ×
+                          </button>
+                        </form>
+                      </span>
+                    ))}
+                  </div>
+                  <CalendarMonth items={buildCalendarItems(items ?? [])} />
+                  <div className="mt-3 flex flex-col gap-3">
+                    {items?.map((e) => (
+                      <div key={e.id} className="rounded-xl border border-slate-200 p-3">
+                        <p className="mb-2 text-sm font-medium text-slate-700">{e.subjects?.name}</p>
+                        <PracticeScheduleCard enrollmentId={e.id} practiceSchedules={e.practice_schedules ?? []} />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>
