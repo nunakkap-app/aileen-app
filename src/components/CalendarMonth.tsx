@@ -7,8 +7,10 @@ type Item = {
   id: string;
   enrollmentId: string;
   label: string;
+  kind: "lesson" | "practice";
   weekdays: number[];
-  hoursPerSession: number;
+  hoursPerSession?: number;
+  timeRange?: string;
   startDate: string;
   endDate: string | null;
 };
@@ -70,6 +72,10 @@ export function CalendarMonth({ items, excluded = [] }: { items: Item[]; exclude
           ›
         </button>
       </div>
+      <div className="mb-2 flex gap-3 text-xs text-slate-500">
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400" /> เรียน</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-indigo-400" /> ซ้อม</span>
+      </div>
       <div className="mb-1 grid grid-cols-7 gap-1 text-center text-xs text-slate-400">
         {weekdayLabels.map((w) => (
           <div key={w}>{w}</div>
@@ -85,9 +91,13 @@ export function CalendarMonth({ items, excluded = [] }: { items: Item[]; exclude
                   <div key={it.id} className="mb-0.5 flex items-center gap-0.5">
                     <a
                       href={`/dashboard/session/${it.enrollmentId}/${dateStrFor(day)}`}
-                      className="flex-1 truncate rounded bg-indigo-100 px-1 py-0.5 text-indigo-700 hover:bg-indigo-200"
+                      className={`flex-1 truncate rounded px-1 py-0.5 ${
+                        it.kind === "lesson"
+                          ? "bg-amber-100 text-amber-700 hover:bg-amber-200"
+                          : "bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
+                      }`}
                     >
-                      {it.label} · {it.hoursPerSession}ชม.
+                      {it.label} · {it.kind === "lesson" ? it.timeRange : `${it.hoursPerSession}ชม.`}
                     </a>
                     <button
                       type="button"

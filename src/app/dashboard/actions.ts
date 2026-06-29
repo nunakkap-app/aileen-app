@@ -29,6 +29,7 @@ export async function inviteCoach(formData: FormData) {
     category: formData.get("category") as string,
     subject_name: formData.get("subject_name") as string,
     note: (formData.get("note") as string) || null,
+    mode: (formData.get("mode") as string) || "practice",
   });
 
   revalidatePath("/dashboard");
@@ -54,6 +55,28 @@ export async function addPracticeSchedule(formData: FormData) {
 export async function deletePracticeSchedule(formData: FormData) {
   const supabase = await createClient();
   await supabase.from("practice_schedules").delete().eq("id", formData.get("id") as string);
+  revalidatePath("/dashboard");
+}
+
+export async function addLessonSchedule(formData: FormData) {
+  const supabase = await createClient();
+
+  await supabase.from("lesson_schedules").insert({
+    enrollment_id: formData.get("enrollment_id") as string,
+    weekday: Number(formData.get("weekday")),
+    start_time: formData.get("start_time") as string,
+    end_time: formData.get("end_time") as string,
+    start_date: formData.get("start_date") as string,
+    end_date: (formData.get("end_date") as string) || null,
+    note: (formData.get("note") as string) || null,
+  });
+
+  revalidatePath("/dashboard");
+}
+
+export async function deleteLessonSchedule(formData: FormData) {
+  const supabase = await createClient();
+  await supabase.from("lesson_schedules").delete().eq("id", formData.get("id") as string);
   revalidatePath("/dashboard");
 }
 
@@ -144,7 +167,11 @@ export async function selfCoach(formData: FormData) {
   }
 
   if (subject) {
-    await supabase.from("enrollments").insert({ child_id: childId, subject_id: subject.id });
+    await supabase.from("enrollments").insert({
+      child_id: childId,
+      subject_id: subject.id,
+      mode: (formData.get("mode") as string) || "practice",
+    });
   }
 
   revalidatePath("/dashboard");
@@ -192,6 +219,7 @@ export async function respondInvitation(formData: FormData) {
       await supabase.from("enrollments").insert({
         child_id: invitation.child_id,
         subject_id: subject.id,
+        mode: invitation.mode,
       });
     }
   }

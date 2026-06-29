@@ -5,9 +5,11 @@ import { CalendarMonth } from "@/components/CalendarMonth";
 import { categoryLabel } from "@/lib/subjects";
 import {
   addChild,
+  addLessonSchedule,
   addPracticeSchedule,
   createAssignment,
   deleteEnrollment,
+  deleteLessonSchedule,
   deletePracticeSchedule,
   inviteCoach,
   respondInvitation,
@@ -25,16 +27,45 @@ type PracticeSchedule = {
   practice_exceptions?: { exception_date: string }[] | null;
 };
 
-function buildCalendarItems(
-  enrollmentsForChild: { id: string; subjects: { name: string } | null; practice_schedules: PracticeSchedule[] | null }[],
-) {
-  const items = enrollmentsForChild.flatMap((e) =>
+type LessonSchedule = {
+  id: string;
+  weekday: number;
+  start_time: string;
+  end_time: string;
+  start_date: string;
+  end_date: string | null;
+  note: string | null;
+};
+
+type EnrollmentForCalendar = {
+  id: string;
+  mode: "lesson" | "practice";
+  subjects: { name: string } | null;
+  practice_schedules: PracticeSchedule[] | null;
+  lesson_schedules: LessonSchedule[] | null;
+};
+
+function buildCalendarItems(enrollmentsForChild: EnrollmentForCalendar[]) {
+  const practiceItems = enrollmentsForChild.flatMap((e) =>
     (e.practice_schedules ?? []).map((s) => ({
       id: s.id,
       enrollmentId: e.id,
       label: e.subjects?.name ?? "",
+      kind: "practice" as const,
       weekdays: s.weekdays,
       hoursPerSession: s.hours_per_session,
+      startDate: s.start_date,
+      endDate: s.end_date,
+    })),
+  );
+  const lessonItems = enrollmentsForChild.flatMap((e) =>
+    (e.lesson_schedules ?? []).map((s) => ({
+      id: s.id,
+      enrollmentId: e.id,
+      label: e.subjects?.name ?? "",
+      kind: "lesson" as const,
+      weekdays: [s.weekday],
+      timeRange: `${s.start_time.slice(0, 5)}-${s.end_time.slice(0, 5)}`,
       startDate: s.start_date,
       endDate: s.end_date,
     })),
@@ -42,7 +73,7 @@ function buildCalendarItems(
   const excluded = enrollmentsForChild.flatMap((e) =>
     (e.practice_schedules ?? []).flatMap((s) => (s.practice_exceptions ?? []).map((x) => `${s.id}|${x.exception_date}`)),
   );
-  return { items, excluded };
+  return { items: [...practiceItems, ...lessonItems], excluded };
 }
 
 const weekdayOptions = [
@@ -111,6 +142,51 @@ function PracticeScheduleCard({
   );
 }
 
+function LessonScheduleCard({
+  enrollmentId,
+  lessonSchedules,
+}: {
+  enrollmentId: string;
+  lessonSchedules: LessonSchedule[];
+}) {
+  return (
+    <>
+      <ul className="mb-3 flex flex-col gap-1 text-sm text-slate-600">
+        {lessonSchedules.map((s) => (
+          <li key={s.id} className="flex items-center justify-between gap-2">
+            <span>
+              ทุก{weekdayOptions.find((o) => o.value === s.weekday)?.label} · {s.start_time.slice(0, 5)}-{s.end_time.slice(0, 5)} · เริ่ม {s.start_date}
+              {s.end_date ? ` ถึง ${s.end_date}` : ""}
+              {s.note ? ` · ${s.note}` : ""}
+            </span>
+            <form action={deleteLessonSchedule}>
+              <input type="hidden" name="id" value={s.id} />
+              <button className="text-xs text-red-500 hover:underline" type="submit">ลบ</button>
+            </form>
+          </li>
+        ))}
+        {!lessonSchedules.length && <li className="text-slate-400">ยังไม่มีตาราง</li>}
+      </ul>
+      <form action={addLessonSchedule} className="flex flex-wrap items-center gap-2">
+        <input type="hidden" name="enrollment_id" value={enrollmentId} />
+        <select name="weekday" required className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm">
+          {weekdayOptions.map((w) => (
+            <option key={w.value} value={w.value}>ทุก{w.label}</option>
+          ))}
+        </select>
+        <input name="start_time" type="time" required className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
+        <input name="end_time" type="time" required className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
+        <input name="start_date" type="date" required className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
+        <input name="end_date" type="date" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
+        <input name="note" placeholder="หมายเหตุ" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
+        <button className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800" type="submit">
+          เพิ่มตาราง
+        </button>
+      </form>
+    </>
+  );
+}
+
 export default async function DashboardPage() {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
@@ -133,7 +209,7 @@ export default async function DashboardPage() {
   const { data: enrollments } = childIds.length
     ? await supabase
         .from("enrollments")
-        .select("*, subjects(name, category, profiles(full_name)), children(full_name), practice_schedules(*, practice_exceptions(*))")
+        .select("*, subjects(name, category, profiles(full_name)), children(full_name), practice_schedules(*, practice_exceptions(*)), lesson_schedules(*)")
         .in("child_id", childIds)
     : { data: null };
 
@@ -151,7 +227,7 @@ export default async function DashboardPage() {
   const { data: coachEnrollments } = coachSubjectIds?.length
     ? await supabase
         .from("enrollments")
-        .select("*, subjects(name, category), children(full_name), practice_schedules(*, practice_exceptions(*))")
+        .select("*, subjects(name, category), children(full_name), practice_schedules(*, practice_exceptions(*)), lesson_schedules(*)")
         .in("subject_id", coachSubjectIds.map((s) => s.id))
     : { data: null };
 
@@ -215,7 +291,10 @@ export default async function DashboardPage() {
                         key={e.id}
                         className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700"
                       >
-                        {e.subjects?.name} · {categoryLabel[e.subjects?.category]}
+                        {e.subjects?.name} · {categoryLabel[e.subjects?.category]} ·{" "}
+                        <span className={e.mode === "lesson" ? "text-amber-600" : "text-indigo-600"}>
+                          {e.mode === "lesson" ? "เรียน" : "ซ้อม"}
+                        </span>
                         {e.subjects?.profiles?.full_name && (
                           <span className="text-indigo-400">· ครู {e.subjects.profiles.full_name}</span>
                         )}
@@ -241,8 +320,14 @@ export default async function DashboardPage() {
                       <div className="mt-3 flex flex-col gap-3">
                         {enrollmentsByChild.get(c.id)?.map((e) => (
                           <div key={e.id} className="rounded-xl border border-slate-200 p-3">
-                            <p className="mb-2 text-sm font-medium text-slate-700">{e.subjects?.name}</p>
-                            <PracticeScheduleCard enrollmentId={e.id} practiceSchedules={e.practice_schedules ?? []} />
+                            <p className="mb-2 text-sm font-medium text-slate-700">
+                              {e.subjects?.name} · {e.mode === "lesson" ? "เรียน" : "ซ้อม"}
+                            </p>
+                            {e.mode === "lesson" ? (
+                              <LessonScheduleCard enrollmentId={e.id} lessonSchedules={e.lesson_schedules ?? []} />
+                            ) : (
+                              <PracticeScheduleCard enrollmentId={e.id} practiceSchedules={e.practice_schedules ?? []} />
+                            )}
                           </div>
                         ))}
                       </div>
@@ -263,6 +348,14 @@ export default async function DashboardPage() {
                         className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
                       />
                       <SubjectPicker className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
+                      <fieldset className="flex items-center gap-3 text-xs text-slate-600">
+                        <label className="flex items-center gap-1">
+                          <input type="radio" name="mode" value="practice" defaultChecked /> ซ้อม (ยืดหยุ่น)
+                        </label>
+                        <label className="flex items-center gap-1">
+                          <input type="radio" name="mode" value="lesson" /> เรียน (ล็อกเวลา)
+                        </label>
+                      </fieldset>
                       <input
                         name="note"
                         placeholder="สิ่งที่ต้องการ (ถ้ามี)"
@@ -284,6 +377,14 @@ export default async function DashboardPage() {
                     <form action={selfCoach} className="mt-3 flex flex-wrap gap-2">
                       <input type="hidden" name="child_id" value={c.id} />
                       <SubjectPicker className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
+                      <fieldset className="flex items-center gap-3 text-xs text-slate-600">
+                        <label className="flex items-center gap-1">
+                          <input type="radio" name="mode" value="practice" defaultChecked /> ซ้อม (ยืดหยุ่น)
+                        </label>
+                        <label className="flex items-center gap-1">
+                          <input type="radio" name="mode" value="lesson" /> เรียน (ล็อกเวลา)
+                        </label>
+                      </fieldset>
                       <button
                         className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
                         type="submit"
@@ -392,7 +493,10 @@ export default async function DashboardPage() {
                         key={e.id}
                         className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700"
                       >
-                        {e.subjects?.name} · {categoryLabel[e.subjects?.category]}
+                        {e.subjects?.name} · {categoryLabel[e.subjects?.category]} ·{" "}
+                        <span className={e.mode === "lesson" ? "text-amber-600" : "text-indigo-600"}>
+                          {e.mode === "lesson" ? "เรียน" : "ซ้อม"}
+                        </span>
                         <form action={deleteEnrollment}>
                           <input type="hidden" name="id" value={e.id} />
                           <button className="text-indigo-400 hover:text-red-500" type="submit" title="ลบกิจกรรม">
@@ -409,8 +513,14 @@ export default async function DashboardPage() {
                   <div className="mt-3 flex flex-col gap-3">
                     {items?.map((e) => (
                       <div key={e.id} className="rounded-xl border border-slate-200 p-3">
-                        <p className="mb-2 text-sm font-medium text-slate-700">{e.subjects?.name}</p>
-                        <PracticeScheduleCard enrollmentId={e.id} practiceSchedules={e.practice_schedules ?? []} />
+                        <p className="mb-2 text-sm font-medium text-slate-700">
+                          {e.subjects?.name} · {e.mode === "lesson" ? "เรียน" : "ซ้อม"}
+                        </p>
+                        {e.mode === "lesson" ? (
+                          <LessonScheduleCard enrollmentId={e.id} lessonSchedules={e.lesson_schedules ?? []} />
+                        ) : (
+                          <PracticeScheduleCard enrollmentId={e.id} practiceSchedules={e.practice_schedules ?? []} />
+                        )}
                       </div>
                     ))}
                   </div>
