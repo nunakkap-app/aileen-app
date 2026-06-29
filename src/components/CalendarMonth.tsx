@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { cancelOccurrence } from "@/app/dashboard/session/actions";
 
 type Item = {
   id: string;
+  enrollmentId: string;
   label: string;
   weekdays: number[];
   hoursPerSession: number;
@@ -13,7 +15,8 @@ type Item = {
 
 const weekdayLabels = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
 
-export function CalendarMonth({ items }: { items: Item[] }) {
+export function CalendarMonth({ items, excluded = [] }: { items: Item[]; excluded?: string[] }) {
+  const excludedSet = new Set(excluded);
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
     d.setDate(1);
@@ -30,14 +33,20 @@ export function CalendarMonth({ items }: { items: Item[] }) {
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
   while (cells.length % 7 !== 0) cells.push(null);
 
+  function dateStrFor(day: number) {
+    const date = new Date(year, month, day);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  }
+
   function itemsForDay(day: number) {
     const date = new Date(year, month, day);
     const weekday = date.getDay();
-    const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    const dateStr = dateStrFor(day);
     return items.filter((it) => {
       if (!it.weekdays.includes(weekday)) return false;
       if (dateStr < it.startDate) return false;
       if (it.endDate && dateStr > it.endDate) return false;
+      if (excludedSet.has(`${it.id}|${dateStr}`)) return false;
       return true;
     });
   }
@@ -73,9 +82,22 @@ export function CalendarMonth({ items }: { items: Item[] }) {
               <>
                 <p className="mb-1 text-slate-400">{day}</p>
                 {itemsForDay(day).map((it) => (
-                  <p key={it.id} className="mb-0.5 truncate rounded bg-indigo-100 px-1 py-0.5 text-indigo-700">
-                    {it.label} · {it.hoursPerSession}ชม.
-                  </p>
+                  <div key={it.id} className="mb-0.5 flex items-center gap-0.5">
+                    <a
+                      href={`/dashboard/session/${it.enrollmentId}/${dateStrFor(day)}`}
+                      className="flex-1 truncate rounded bg-indigo-100 px-1 py-0.5 text-indigo-700 hover:bg-indigo-200"
+                    >
+                      {it.label} · {it.hoursPerSession}ชม.
+                    </a>
+                    <button
+                      type="button"
+                      title="ยกเลิกวันนี้"
+                      onClick={() => cancelOccurrence(it.id, dateStrFor(day))}
+                      className="text-slate-400 hover:text-red-500"
+                    >
+                      ×
+                    </button>
+                  </div>
                 ))}
               </>
             )}

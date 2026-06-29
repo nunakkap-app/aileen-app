@@ -22,14 +22,16 @@ type PracticeSchedule = {
   start_date: string;
   end_date: string | null;
   note: string | null;
+  practice_exceptions?: { exception_date: string }[] | null;
 };
 
 function buildCalendarItems(
   enrollmentsForChild: { id: string; subjects: { name: string } | null; practice_schedules: PracticeSchedule[] | null }[],
 ) {
-  return enrollmentsForChild.flatMap((e) =>
+  const items = enrollmentsForChild.flatMap((e) =>
     (e.practice_schedules ?? []).map((s) => ({
       id: s.id,
+      enrollmentId: e.id,
       label: e.subjects?.name ?? "",
       weekdays: s.weekdays,
       hoursPerSession: s.hours_per_session,
@@ -37,6 +39,10 @@ function buildCalendarItems(
       endDate: s.end_date,
     })),
   );
+  const excluded = enrollmentsForChild.flatMap((e) =>
+    (e.practice_schedules ?? []).flatMap((s) => (s.practice_exceptions ?? []).map((x) => `${s.id}|${x.exception_date}`)),
+  );
+  return { items, excluded };
 }
 
 const weekdayOptions = [
@@ -127,7 +133,7 @@ export default async function DashboardPage() {
   const { data: enrollments } = childIds.length
     ? await supabase
         .from("enrollments")
-        .select("*, subjects(name, category, profiles(full_name)), children(full_name), practice_schedules(*)")
+        .select("*, subjects(name, category, profiles(full_name)), children(full_name), practice_schedules(*, practice_exceptions(*))")
         .in("child_id", childIds)
     : { data: null };
 
@@ -145,7 +151,7 @@ export default async function DashboardPage() {
   const { data: coachEnrollments } = coachSubjectIds?.length
     ? await supabase
         .from("enrollments")
-        .select("*, subjects(name, category), children(full_name), practice_schedules(*)")
+        .select("*, subjects(name, category), children(full_name), practice_schedules(*, practice_exceptions(*))")
         .in("subject_id", coachSubjectIds.map((s) => s.id))
     : { data: null };
 
@@ -228,7 +234,10 @@ export default async function DashboardPage() {
 
                   {!!enrollmentsByChild.get(c.id)?.length && (
                     <div className="mb-4">
-                      <CalendarMonth items={buildCalendarItems(enrollmentsByChild.get(c.id) ?? [])} />
+                      {(() => {
+                        const { items, excluded } = buildCalendarItems(enrollmentsByChild.get(c.id) ?? []);
+                        return <CalendarMonth items={items} excluded={excluded} />;
+                      })()}
                       <div className="mt-3 flex flex-col gap-3">
                         {enrollmentsByChild.get(c.id)?.map((e) => (
                           <div key={e.id} className="rounded-xl border border-slate-200 p-3">
@@ -393,7 +402,10 @@ export default async function DashboardPage() {
                       </span>
                     ))}
                   </div>
-                  <CalendarMonth items={buildCalendarItems(items ?? [])} />
+                  {(() => {
+                    const built = buildCalendarItems(items ?? []);
+                    return <CalendarMonth items={built.items} excluded={built.excluded} />;
+                  })()}
                   <div className="mt-3 flex flex-col gap-3">
                     {items?.map((e) => (
                       <div key={e.id} className="rounded-xl border border-slate-200 p-3">
