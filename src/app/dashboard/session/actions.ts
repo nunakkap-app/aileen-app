@@ -101,6 +101,23 @@ export async function stopTimer(formData: FormData) {
   revalidatePath(formData.get("redirect_path") as string);
 }
 
+export async function completeLesson(formData: FormData) {
+  const supabase = await createClient();
+  const enrollmentId = formData.get("enrollment_id") as string;
+  const date = formData.get("date") as string;
+  const durationSeconds = Number(formData.get("duration_seconds"));
+
+  const log = await getOrCreateLog(supabase, enrollmentId, date);
+  if (!log) return;
+
+  await supabase
+    .from("practice_logs")
+    .update({ status: "done", elapsed_seconds: durationSeconds, running_since: null })
+    .eq("id", log.id);
+
+  revalidatePath(`/dashboard/session/${enrollmentId}/${date}`);
+}
+
 export async function saveNote(formData: FormData) {
   const supabase = await createClient();
   const logId = formData.get("log_id") as string;

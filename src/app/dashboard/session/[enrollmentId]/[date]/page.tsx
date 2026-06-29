@@ -1,7 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
 import { NavBar } from "@/components/NavBar";
 import { SessionTimer } from "@/components/SessionTimer";
-import { saveNote, uploadMedia } from "../../actions";
+import { completeLesson, saveNote, uploadMedia } from "../../actions";
+
+function timeToSeconds(t: string) {
+  const [h, m, s] = t.split(":").map(Number);
+  return h * 3600 + m * 60 + (s || 0);
+}
 
 export default async function SessionPage({
   params,
@@ -15,7 +20,7 @@ export default async function SessionPage({
 
   const { data: enrollment } = await supabase
     .from("enrollments")
-    .select("*, children(full_name), subjects(name)")
+    .select("*, children(full_name), subjects(name), lesson_schedules(*)")
     .eq("id", enrollmentId)
     .single();
 
@@ -27,6 +32,16 @@ export default async function SessionPage({
     .maybeSingle();
 
   const redirectPath = `/dashboard/session/${enrollmentId}/${date}`;
+  const isLesson = enrollment?.mode === "lesson";
+
+  const weekday = new Date(date).getDay();
+  const matchingLessonSchedule = enrollment?.lesson_schedules?.find(
+    (s: { weekday: number; start_date: string; end_date: string | null }) =>
+      s.weekday === weekday && date >= s.start_date && (!s.end_date || date <= s.end_date),
+  );
+  const lessonDurationSeconds = matchingLessonSchedule
+    ? timeToSeconds(matchingLessonSchedule.end_time) - timeToSeconds(matchingLessonSchedule.start_time)
+    : 0;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -43,12 +58,33 @@ export default async function SessionPage({
         </p>
 
         <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <SessionTimer
-            log={log ?? null}
-            enrollmentId={enrollmentId}
-            date={date}
-            redirectPath={redirectPath}
-          />
+          {isLesson ? (
+            log?.status === "done" ? (
+              <p className="text-emerald-600">
+                ✓ เรียนเสร็จแล้ว ({(log.elapsed_seconds / 3600).toFixed(1)} ชม.)
+              </p>
+            ) : (
+              <form action={completeLesson} className="flex items-center gap-3">
+                <input type="hidden" name="enrollment_id" value={enrollmentId} />
+                <input type="hidden" name="date" value={date} />
+                <input type="hidden" name="duration_seconds" value={lessonDurationSeconds} />
+                <button
+                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+                  type="submit"
+                >
+                  ✓ เรียนเสร็จแล้ว
+                </button>
+                {matchingLessonSchedule && (
+                  <span className="text-sm text-slate-500">
+                    ({matchingLessonSchedule.start_time.slice(0, 5)}-{matchingLessonSchedule.end_time.slice(0, 5)} ·{" "}
+                    {(lessonDurationSeconds / 3600).toFixed(1)} ชม. ตามตาราง)
+                  </span>
+                )}
+              </form>
+            )
+          ) : (
+            <SessionTimer log={log ?? null} enrollmentId={enrollmentId} date={date} redirectPath={redirectPath} />
+          )}
         </div>
 
         {log && (

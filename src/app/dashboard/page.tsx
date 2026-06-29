@@ -22,8 +22,55 @@ function toDateStr(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+function eachDateStr(start: Date, end: Date) {
+  const dates: string[] = [];
+  const cur = new Date(start);
+  while (cur <= end) {
+    dates.push(toDateStr(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return dates;
+}
+
+function timeToSeconds(t: string) {
+  const [h, m, s] = t.split(":").map(Number);
+  return h * 3600 + m * 60 + (s || 0);
+}
+
 function formatHours(totalSeconds: number) {
   return (totalSeconds / 3600).toFixed(1);
+}
+
+type PracticeException = { exception_date: string };
+type PracticeSchedule = {
+  weekdays: number[];
+  hours_per_session: number;
+  start_date: string;
+  end_date: string | null;
+  practice_exceptions?: PracticeException[] | null;
+};
+type LessonSchedule = {
+  weekday: number;
+  start_time: string;
+  end_time: string;
+  start_date: string;
+  end_date: string | null;
+};
+type EnrollmentRow = {
+  id: string;
+  mode: "lesson" | "practice";
+  child_id: string;
+  subjects: { category: string } | { category: string }[] | null;
+  children: { full_name: string } | { full_name: string }[] | null;
+  practice_schedules: PracticeSchedule[] | null;
+  lesson_schedules: LessonSchedule[] | null;
+};
+
+function getCategory(e: EnrollmentRow) {
+  return Array.isArray(e.subjects) ? e.subjects[0]?.category : e.subjects?.category ?? "academic";
+}
+function getChildName(e: EnrollmentRow) {
+  return Array.isArray(e.children) ? e.children[0]?.full_name : e.children?.full_name ?? "";
 }
 
 export default async function DashboardPage({
@@ -36,6 +83,7 @@ export default async function DashboardPage({
   const { start, end } = getRange(range);
   const startStr = toDateStr(start);
   const endStr = toDateStr(end);
+  const dateStrsInRange = eachDateStr(start, end);
 
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
@@ -58,23 +106,57 @@ export default async function DashboardPage({
     ? await supabase.from("subjects").select("id").eq("coach_id", auth.user.id)
     : { data: null };
 
+  const enrollmentSelect =
+    "id, mode, child_id, subjects(category), children(full_name), practice_schedules(weekdays, hours_per_session, start_date, end_date, practice_exceptions(exception_date)), lesson_schedules(weekday, start_time, end_time, start_date, end_date)";
+
   const { data: parentEnrollments } = childIds.length
-    ? await supabase
-        .from("enrollments")
-        .select("id, mode, child_id, subjects(name, category), children(full_name)")
-        .in("child_id", childIds)
+    ? await supabase.from("enrollments").select(enrollmentSelect).in("child_id", childIds)
     : { data: null };
 
   const { data: coachEnrollments } = coachSubjectIds?.length
     ? await supabase
         .from("enrollments")
-        .select("id, mode, child_id, subjects(name, category), children(full_name)")
+        .select(enrollmentSelect)
         .in("subject_id", coachSubjectIds.map((s) => s.id))
     : { data: null };
 
-  async function summarize(enrollments: typeof parentEnrollments) {
+  function plannedSecondsFor(e: EnrollmentRow) {
+    let seconds = 0;
+    e.practice_schedules?.forEach((s) => {
+      const excluded = new Set((s.practice_exceptions ?? []).map((x) => x.exception_date));
+      dateStrsInRange.forEach((dateStr) => {
+        const weekday = new Date(dateStr).getDay();
+        if (!s.weekdays.includes(weekday)) return;
+        if (dateStr < s.start_date || (s.end_date && dateStr > s.end_date)) return;
+        if (excluded.has(dateStr)) return;
+        seconds += s.hours_per_session * 3600;
+      });
+    });
+    e.lesson_schedules?.forEach((s) => {
+      dateStrsInRange.forEach((dateStr) => {
+        const weekday = new Date(dateStr).getDay();
+        if (s.weekday !== weekday) return;
+        if (dateStr < s.start_date || (s.end_date && dateStr > s.end_date)) return;
+        seconds += timeToSeconds(s.end_time) - timeToSeconds(s.start_time);
+      });
+    });
+    return seconds;
+  }
+
+  async function summarize(enrollments: EnrollmentRow[] | null) {
     const ids = enrollments?.map((e) => e.id) ?? [];
-    if (!ids.length) return { byCategory: new Map(), byChild: new Map() };
+    const byCategoryActual = new Map<string, { lesson: number; practice: number }>();
+    const byCategoryPlanned = new Map<string, { lesson: number; practice: number }>();
+    const byChild = new Map<string, { name: string; seconds: number }>();
+
+    enrollments?.forEach((e) => {
+      const cat = getCategory(e);
+      const planned = byCategoryPlanned.get(cat) ?? { lesson: 0, practice: 0 };
+      planned[e.mode] += plannedSecondsFor(e);
+      byCategoryPlanned.set(cat, planned);
+    });
+
+    if (!ids.length) return { byCategoryActual, byCategoryPlanned, byChild };
 
     const { data: logs } = await supabase
       .from("practice_logs")
@@ -84,49 +166,59 @@ export default async function DashboardPage({
       .lte("log_date", endStr);
 
     const enrollmentById = new Map(enrollments!.map((e) => [e.id, e]));
-    const byCategory = new Map<string, { lesson: number; practice: number }>();
-    const byChild = new Map<string, { name: string; seconds: number }>();
 
     logs?.forEach((log) => {
       const e = enrollmentById.get(log.enrollment_id);
       if (!e) return;
-      const cat = Array.isArray(e.subjects) ? e.subjects[0]?.category : (e.subjects as { category: string } | null)?.category ?? "academic";
-      const entry = byCategory.get(cat) ?? { lesson: 0, practice: 0 };
-      entry[e.mode as "lesson" | "practice"] += log.elapsed_seconds;
-      byCategory.set(cat, entry);
+      const cat = getCategory(e);
+      const entry = byCategoryActual.get(cat) ?? { lesson: 0, practice: 0 };
+      entry[e.mode] += log.elapsed_seconds;
+      byCategoryActual.set(cat, entry);
 
-      const childName = Array.isArray(e.children) ? e.children[0]?.full_name : (e.children as { full_name: string } | null)?.full_name;
-      const childEntry = byChild.get(e.child_id) ?? { name: childName ?? "", seconds: 0 };
+      const childEntry = byChild.get(e.child_id) ?? { name: getChildName(e), seconds: 0 };
       childEntry.seconds += log.elapsed_seconds;
       byChild.set(e.child_id, childEntry);
     });
 
-    return { byCategory, byChild };
+    return { byCategoryActual, byCategoryPlanned, byChild };
   }
 
-  const parentSummary = isParent ? await summarize(parentEnrollments) : null;
-  const coachSummary = isCoach ? await summarize(coachEnrollments) : null;
+  const parentSummary = isParent ? await summarize(parentEnrollments as EnrollmentRow[] | null) : null;
+  const coachSummary = isCoach ? await summarize(coachEnrollments as EnrollmentRow[] | null) : null;
 
   const rangeLabel =
     range === "week"
       ? `สัปดาห์นี้ (${start.toLocaleDateString("th-TH", { day: "numeric", month: "short" })} - ${end.toLocaleDateString("th-TH", { day: "numeric", month: "short" })})`
       : `เดือน${start.toLocaleDateString("th-TH", { month: "long", year: "numeric" })}`;
 
-  function CategorySummary({ byCategory }: { byCategory: Map<string, { lesson: number; practice: number }> }) {
+  function CategorySummary({
+    byCategoryActual,
+    byCategoryPlanned,
+  }: {
+    byCategoryActual: Map<string, { lesson: number; practice: number }>;
+    byCategoryPlanned: Map<string, { lesson: number; practice: number }>;
+  }) {
     return (
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {Object.keys(categoryLabel).map((cat) => {
           const colors = categoryColor[cat];
-          const entry = byCategory.get(cat) ?? { lesson: 0, practice: 0 };
-          const total = entry.lesson + entry.practice;
+          const actual = byCategoryActual.get(cat) ?? { lesson: 0, practice: 0 };
+          const planned = byCategoryPlanned.get(cat) ?? { lesson: 0, practice: 0 };
+          const actualTotal = actual.lesson + actual.practice;
+          const plannedTotal = planned.lesson + planned.practice;
           return (
             <div key={cat} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <p className={`mb-1 inline-flex items-center gap-1.5 text-sm font-medium ${colors.text}`}>
                 <span className={`h-2 w-2 rounded-full ${colors.dot}`} /> {categoryLabel[cat]}
               </p>
-              <p className="text-3xl font-semibold text-slate-900">{formatHours(total)} <span className="text-base font-normal text-slate-400">ชม.</span></p>
-              <p className="mt-1 text-xs text-slate-500">
-                {modeLabel.lesson} {formatHours(entry.lesson)} ชม. · {modeLabel.practice} {formatHours(entry.practice)} ชม.
+              <p className="text-3xl font-semibold text-slate-900">
+                {formatHours(actualTotal)}
+                <span className="text-base font-normal text-slate-400"> / {formatHours(plannedTotal)} ชม.</span>
+              </p>
+              <p className="mt-1 text-xs text-slate-500">ทำไปแล้ว / ตารางที่ตั้งไว้</p>
+              <p className="mt-2 text-xs text-slate-500">
+                {modeLabel.lesson}: {formatHours(actual.lesson)}/{formatHours(planned.lesson)} ชม. ·{" "}
+                {modeLabel.practice}: {formatHours(actual.practice)}/{formatHours(planned.practice)} ชม.
               </p>
             </div>
           );
@@ -161,7 +253,7 @@ export default async function DashboardPage({
         {isParent && (
           <section className="mb-10">
             <h2 className="mb-3 text-sm font-semibold text-slate-500">ชั่วโมงเรียน/ซ้อมของลูก แยกตามหมวด</h2>
-            <CategorySummary byCategory={parentSummary!.byCategory} />
+            <CategorySummary byCategoryActual={parentSummary!.byCategoryActual} byCategoryPlanned={parentSummary!.byCategoryPlanned} />
             {!!parentSummary!.byChild.size && (
               <div className="mt-4 flex flex-col gap-1 text-sm text-slate-600">
                 {[...parentSummary!.byChild.entries()].map(([childId, c]) => (
@@ -178,7 +270,7 @@ export default async function DashboardPage({
         {isCoach && (
           <section className="mb-10">
             <h2 className="mb-3 text-sm font-semibold text-slate-500">ชั่วโมงที่สอน แยกตามหมวด</h2>
-            <CategorySummary byCategory={coachSummary!.byCategory} />
+            <CategorySummary byCategoryActual={coachSummary!.byCategoryActual} byCategoryPlanned={coachSummary!.byCategoryPlanned} />
             {!!coachSummary!.byChild.size && (
               <div className="mt-4 flex flex-col gap-1 text-sm text-slate-600">
                 {[...coachSummary!.byChild.entries()].map(([childId, c]) => (
