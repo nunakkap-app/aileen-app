@@ -1,7 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
-import { logout } from "@/app/login/actions";
-import { addChild, inviteCoach, respondInvitation } from "./actions";
+import { NavBar } from "@/components/NavBar";
+import { addChild, inviteCoach, respondInvitation, selfCoach } from "./actions";
 import { saveCoachProfile, respondRequest } from "@/app/coaches/actions";
+
+const categoryLabel: Record<string, string> = {
+  sport: "กีฬา",
+  music: "ดนตรี",
+  academic: "วิชาการ",
+};
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -19,6 +25,22 @@ export default async function DashboardPage() {
   const { data: children } = isParent
     ? await supabase.from("children").select("*").order("created_at")
     : { data: null };
+
+  const childIds = children?.map((c) => c.id) ?? [];
+
+  const { data: enrollments } = childIds.length
+    ? await supabase
+        .from("enrollments")
+        .select("*, subjects(name, category, profiles(full_name))")
+        .in("child_id", childIds)
+    : { data: null };
+
+  const enrollmentsByChild = new Map<string, typeof enrollments>();
+  enrollments?.forEach((e) => {
+    const list = enrollmentsByChild.get(e.child_id) ?? [];
+    list.push(e);
+    enrollmentsByChild.set(e.child_id, list);
+  });
 
   const { data: sentInvitations } = isParent
     ? await supabase.from("invitations").select("*, children(full_name)").order("created_at", { ascending: false })
@@ -46,219 +68,283 @@ export default async function DashboardPage() {
     : { data: null };
 
   return (
-    <div className="mx-auto max-w-2xl py-12">
-      <div className="mb-8 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">แดชบอร์ด</h1>
-        <form action={logout}>
-          <button className="text-sm underline" type="submit">ออกจากระบบ</button>
-        </form>
-      </div>
-
-      {isParent && (
-        <section className="mb-10">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-semibold">ลูกของฉัน</h2>
-            <a href="/coaches" className="text-sm underline">หาครู/โค้ช</a>
-          </div>
-          <ul className="mb-4 flex flex-col gap-4">
-            {children?.map((c) => (
-              <li key={c.id} className="rounded border px-3 py-3">
-                <p className="mb-2 font-medium">
-                  {c.full_name} {c.birthdate ? `· เกิด ${c.birthdate}` : ""}
-                </p>
-                <form action={inviteCoach} className="flex flex-wrap gap-2">
-                  <input type="hidden" name="child_id" value={c.id} />
-                  <input
-                    name="coach_email"
-                    type="email"
-                    placeholder="อีเมลครู/โค้ช"
-                    required
-                    className="rounded border px-2 py-1 text-sm"
-                  />
-                  <select name="category" className="rounded border px-2 py-1 text-sm">
-                    <option value="sport">กีฬา</option>
-                    <option value="music">ดนตรี</option>
-                    <option value="academic">วิชาการ</option>
-                  </select>
-                  <input
-                    name="subject_name"
-                    placeholder="วิชา/กิจกรรม เช่น เปียโน"
-                    required
-                    className="rounded border px-2 py-1 text-sm"
-                  />
-                  <input
-                    name="note"
-                    placeholder="สิ่งที่ต้องการ (ถ้ามี)"
-                    className="rounded border px-2 py-1 text-sm"
-                  />
-                  <button className="rounded bg-black px-3 py-1 text-sm text-white" type="submit">
-                    แอดครู
-                  </button>
-                </form>
-              </li>
-            ))}
-            {!children?.length && <li className="text-sm text-gray-500">ยังไม่มีข้อมูลลูก</li>}
-          </ul>
-          <form action={addChild} className="flex gap-2">
-            <input name="full_name" placeholder="ชื่อลูก" required className="rounded border px-3 py-2" />
-            <input name="birthdate" type="date" className="rounded border px-3 py-2" />
-            <button className="rounded bg-black px-4 py-2 text-white" type="submit">เพิ่มลูก</button>
-          </form>
-
-          {!!sentInvitations?.length && (
-            <div className="mt-6">
-              <h3 className="mb-2 text-sm font-semibold text-gray-600">คำเชิญที่ส่งไปแล้ว</h3>
-              <ul className="flex flex-col gap-1 text-sm">
-                {sentInvitations.map((inv) => (
-                  <li key={inv.id} className="text-gray-600">
-                    {inv.children?.full_name} → {inv.coach_email} ({inv.subject_name}) ·{" "}
-                    <span
-                      className={
-                        inv.status === "accepted"
-                          ? "text-green-600"
-                          : inv.status === "declined"
-                            ? "text-red-600"
-                            : "text-yellow-600"
-                      }
-                    >
-                      {inv.status === "accepted" ? "ตอบรับแล้ว" : inv.status === "declined" ? "ปฏิเสธ" : "รอตอบรับ"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+    <div className="min-h-screen bg-slate-50">
+      <NavBar email={auth.user.email ?? ""} />
+      <main className="mx-auto max-w-3xl px-6 py-10">
+        {isParent && (
+          <section className="mb-10">
+            <div className="mb-4 flex items-center justify-between">
+              <h1 className="text-xl font-semibold text-slate-900">ลูกของฉัน</h1>
             </div>
-          )}
-        </section>
-      )}
 
-      {isCoach && (
-        <section className="mb-10">
-          <h2 className="mb-3 text-lg font-semibold">โปรไฟล์สาธารณะ (ให้ผปค.ค้นเจอ)</h2>
-          <form action={saveCoachProfile} className="flex flex-col gap-2">
-            <input
-              name="headline"
-              placeholder="หัวข้อสั้นๆ เช่น โค้ชฟุตบอลเยาวชน"
-              defaultValue={coachProfile?.headline ?? ""}
-              required
-              className="rounded border px-3 py-2"
-            />
-            <textarea
-              name="bio"
-              placeholder="แนะนำตัว"
-              defaultValue={coachProfile?.bio ?? ""}
-              className="rounded border px-3 py-2"
-            />
-            <fieldset className="flex gap-4 text-sm">
-              {["sport", "music", "academic"].map((cat) => (
-                <label key={cat} className="flex items-center gap-1">
-                  <input
-                    type="checkbox"
-                    name="categories"
-                    value={cat}
-                    defaultChecked={coachProfile?.categories?.includes(cat)}
-                  />
-                  {cat === "sport" ? "กีฬา" : cat === "music" ? "ดนตรี" : "วิชาการ"}
-                </label>
+            <div className="flex flex-col gap-4">
+              {children?.map((c) => (
+                <div key={c.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <p className="mb-1 font-medium text-slate-900">
+                    {c.full_name}
+                    {c.birthdate && <span className="ml-2 text-sm text-slate-400">เกิด {c.birthdate}</span>}
+                  </p>
+
+                  <div className="mb-4 mt-2 flex flex-wrap gap-2">
+                    {enrollmentsByChild.get(c.id)?.map((e) => (
+                      <span
+                        key={e.id}
+                        className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700"
+                      >
+                        {e.subjects?.name} · {categoryLabel[e.subjects?.category]}
+                        {e.subjects?.profiles?.full_name && (
+                          <span className="text-indigo-400">· ครู {e.subjects.profiles.full_name}</span>
+                        )}
+                      </span>
+                    ))}
+                    {!enrollmentsByChild.get(c.id)?.length && (
+                      <span className="text-sm text-slate-400">ยังไม่มีกิจกรรม</span>
+                    )}
+                  </div>
+
+                  <details className="group mb-2">
+                    <summary className="cursor-pointer text-sm font-medium text-indigo-600">
+                      + แอดครู (เชิญด้วยอีเมล)
+                    </summary>
+                    <form action={inviteCoach} className="mt-3 flex flex-wrap gap-2">
+                      <input type="hidden" name="child_id" value={c.id} />
+                      <input
+                        name="coach_email"
+                        type="email"
+                        placeholder="อีเมลครู/โค้ช"
+                        required
+                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+                      />
+                      <select name="category" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm">
+                        <option value="sport">กีฬา</option>
+                        <option value="music">ดนตรี</option>
+                        <option value="academic">วิชาการ</option>
+                      </select>
+                      <input
+                        name="subject_name"
+                        placeholder="วิชา/กิจกรรม เช่น เปียโน"
+                        required
+                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+                      />
+                      <input
+                        name="note"
+                        placeholder="สิ่งที่ต้องการ (ถ้ามี)"
+                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+                      />
+                      <button
+                        className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+                        type="submit"
+                      >
+                        ส่งคำเชิญ
+                      </button>
+                    </form>
+                  </details>
+
+                  <details className="group">
+                    <summary className="cursor-pointer text-sm font-medium text-emerald-600">
+                      + สอนลูกเอง
+                    </summary>
+                    <form action={selfCoach} className="mt-3 flex flex-wrap gap-2">
+                      <input type="hidden" name="child_id" value={c.id} />
+                      <select name="category" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm">
+                        <option value="sport">กีฬา</option>
+                        <option value="music">ดนตรี</option>
+                        <option value="academic">วิชาการ</option>
+                      </select>
+                      <input
+                        name="subject_name"
+                        placeholder="วิชา/กิจกรรม เช่น คณิตศาสตร์"
+                        required
+                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+                      />
+                      <button
+                        className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
+                        type="submit"
+                      >
+                        เริ่มสอนเอง
+                      </button>
+                    </form>
+                  </details>
+                </div>
               ))}
-            </fieldset>
-            <div className="flex gap-2">
-              <input
-                name="years_experience"
-                type="number"
-                placeholder="ปีประสบการณ์"
-                defaultValue={coachProfile?.years_experience ?? ""}
-                className="rounded border px-3 py-2"
-              />
-              <input
-                name="hourly_rate"
-                type="number"
-                placeholder="ค่าเรียน/ชม."
-                defaultValue={coachProfile?.hourly_rate ?? ""}
-                className="rounded border px-3 py-2"
-              />
-              <input
-                name="service_area"
-                placeholder="พื้นที่บริการ"
-                defaultValue={coachProfile?.service_area ?? ""}
-                className="rounded border px-3 py-2"
-              />
+              {!children?.length && (
+                <p className="rounded-2xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-400">
+                  ยังไม่มีข้อมูลลูก — เพิ่มด้านล่างได้เลย
+                </p>
+              )}
             </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" name="is_published" defaultChecked={coachProfile?.is_published} />
-              เปิดให้ผปค.ค้นเจอ
-            </label>
-            <button className="self-start rounded bg-black px-4 py-2 text-white" type="submit">
-              บันทึกโปรไฟล์
-            </button>
-          </form>
-        </section>
-      )}
 
-      {isCoach && (
-        <section className="mb-10">
-          <h2 className="mb-3 text-lg font-semibold">คำขอเรียนจากผปค. (ผ่านการค้นหา)</h2>
-          <ul className="flex flex-col gap-2">
-            {pendingRequests?.map((req) => (
-              <li key={req.id} className="rounded border px-3 py-3">
-                <p className="mb-2">
-                  {req.children?.full_name} อยากเรียน <strong>{req.subject_name}</strong> ({req.category})
-                  {req.note ? ` — ${req.note}` : ""}
-                </p>
-                <div className="flex gap-2">
-                  <form action={respondRequest}>
-                    <input type="hidden" name="request_id" value={req.id} />
-                    <input type="hidden" name="decision" value="accepted" />
-                    <button className="rounded bg-black px-3 py-1 text-sm text-white" type="submit">
-                      ตอบรับ
-                    </button>
-                  </form>
-                  <form action={respondRequest}>
-                    <input type="hidden" name="request_id" value={req.id} />
-                    <input type="hidden" name="decision" value="declined" />
-                    <button className="rounded border px-3 py-1 text-sm" type="submit">
-                      ปฏิเสธ
-                    </button>
-                  </form>
-                </div>
-              </li>
-            ))}
-            {!pendingRequests?.length && <li className="text-sm text-gray-500">ยังไม่มีคำขอ</li>}
-          </ul>
-        </section>
-      )}
+            <form action={addChild} className="mt-5 flex gap-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <input
+                name="full_name"
+                placeholder="ชื่อลูก"
+                required
+                className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+              <input name="birthdate" type="date" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <button className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800" type="submit">
+                เพิ่มลูก
+              </button>
+            </form>
 
-      {isCoach && (
-        <section>
-          <h2 className="mb-3 text-lg font-semibold">คำเชิญที่รอตอบรับ</h2>
-          <ul className="flex flex-col gap-2">
-            {pendingInvitations?.map((inv) => (
-              <li key={inv.id} className="rounded border px-3 py-3">
-                <p className="mb-2">
-                  {inv.children?.full_name} อยากเรียน <strong>{inv.subject_name}</strong> ({inv.category})
-                  {inv.note ? ` — ${inv.note}` : ""}
-                </p>
-                <div className="flex gap-2">
-                  <form action={respondInvitation}>
-                    <input type="hidden" name="invitation_id" value={inv.id} />
-                    <input type="hidden" name="decision" value="accepted" />
-                    <button className="rounded bg-black px-3 py-1 text-sm text-white" type="submit">
-                      ตอบรับ
-                    </button>
-                  </form>
-                  <form action={respondInvitation}>
-                    <input type="hidden" name="invitation_id" value={inv.id} />
-                    <input type="hidden" name="decision" value="declined" />
-                    <button className="rounded border px-3 py-1 text-sm" type="submit">
-                      ปฏิเสธ
-                    </button>
-                  </form>
+            {!!sentInvitations?.length && (
+              <div className="mt-6">
+                <h3 className="mb-2 text-sm font-semibold text-slate-500">คำเชิญที่ส่งไปแล้ว</h3>
+                <ul className="flex flex-col gap-1 text-sm">
+                  {sentInvitations.map((inv) => (
+                    <li key={inv.id} className="text-slate-600">
+                      {inv.children?.full_name} → {inv.coach_email} ({inv.subject_name}) ·{" "}
+                      <span
+                        className={
+                          inv.status === "accepted"
+                            ? "text-emerald-600"
+                            : inv.status === "declined"
+                              ? "text-red-600"
+                              : "text-amber-600"
+                        }
+                      >
+                        {inv.status === "accepted" ? "ตอบรับแล้ว" : inv.status === "declined" ? "ปฏิเสธ" : "รอตอบรับ"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </section>
+        )}
+
+        {isCoach && (
+          <section className="mb-10">
+            <h2 className="mb-4 text-xl font-semibold text-slate-900">โปรไฟล์สาธารณะ</h2>
+            <form action={saveCoachProfile} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <input
+                name="headline"
+                placeholder="หัวข้อสั้นๆ เช่น โค้ชฟุตบอลเยาวชน"
+                defaultValue={coachProfile?.headline ?? ""}
+                required
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+              <textarea
+                name="bio"
+                placeholder="แนะนำตัว"
+                defaultValue={coachProfile?.bio ?? ""}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              />
+              <fieldset className="flex gap-4 text-sm text-slate-600">
+                {["sport", "music", "academic"].map((cat) => (
+                  <label key={cat} className="flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      name="categories"
+                      value={cat}
+                      defaultChecked={coachProfile?.categories?.includes(cat)}
+                    />
+                    {categoryLabel[cat]}
+                  </label>
+                ))}
+              </fieldset>
+              <div className="flex gap-2">
+                <input
+                  name="years_experience"
+                  type="number"
+                  placeholder="ปีประสบการณ์"
+                  defaultValue={coachProfile?.years_experience ?? ""}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+                <input
+                  name="hourly_rate"
+                  type="number"
+                  placeholder="ค่าเรียน/ชม."
+                  defaultValue={coachProfile?.hourly_rate ?? ""}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+                <input
+                  name="service_area"
+                  placeholder="พื้นที่บริการ"
+                  defaultValue={coachProfile?.service_area ?? ""}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                <input type="checkbox" name="is_published" defaultChecked={coachProfile?.is_published} />
+                เปิดให้ผปค.ค้นเจอ
+              </label>
+              <button
+                className="self-start rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                type="submit"
+              >
+                บันทึกโปรไฟล์
+              </button>
+            </form>
+          </section>
+        )}
+
+        {isCoach && (
+          <section className="mb-10">
+            <h2 className="mb-4 text-xl font-semibold text-slate-900">คำขอเรียนจากผปค.</h2>
+            <div className="flex flex-col gap-3">
+              {pendingRequests?.map((req) => (
+                <div key={req.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <p className="mb-3 text-sm text-slate-700">
+                    {req.children?.full_name} อยากเรียน <strong>{req.subject_name}</strong> ({categoryLabel[req.category]})
+                    {req.note ? ` — ${req.note}` : ""}
+                  </p>
+                  <div className="flex gap-2">
+                    <form action={respondRequest}>
+                      <input type="hidden" name="request_id" value={req.id} />
+                      <input type="hidden" name="decision" value="accepted" />
+                      <button className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700" type="submit">
+                        ตอบรับ
+                      </button>
+                    </form>
+                    <form action={respondRequest}>
+                      <input type="hidden" name="request_id" value={req.id} />
+                      <input type="hidden" name="decision" value="declined" />
+                      <button className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50" type="submit">
+                        ปฏิเสธ
+                      </button>
+                    </form>
+                  </div>
                 </div>
-              </li>
-            ))}
-            {!pendingInvitations?.length && <li className="text-sm text-gray-500">ไม่มีคำเชิญใหม่</li>}
-          </ul>
-        </section>
-      )}
+              ))}
+              {!pendingRequests?.length && <p className="text-sm text-slate-400">ยังไม่มีคำขอ</p>}
+            </div>
+          </section>
+        )}
+
+        {isCoach && (
+          <section>
+            <h2 className="mb-4 text-xl font-semibold text-slate-900">คำเชิญที่รอตอบรับ</h2>
+            <div className="flex flex-col gap-3">
+              {pendingInvitations?.map((inv) => (
+                <div key={inv.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <p className="mb-3 text-sm text-slate-700">
+                    {inv.children?.full_name} อยากเรียน <strong>{inv.subject_name}</strong> ({categoryLabel[inv.category]})
+                    {inv.note ? ` — ${inv.note}` : ""}
+                  </p>
+                  <div className="flex gap-2">
+                    <form action={respondInvitation}>
+                      <input type="hidden" name="invitation_id" value={inv.id} />
+                      <input type="hidden" name="decision" value="accepted" />
+                      <button className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700" type="submit">
+                        ตอบรับ
+                      </button>
+                    </form>
+                    <form action={respondInvitation}>
+                      <input type="hidden" name="invitation_id" value={inv.id} />
+                      <input type="hidden" name="decision" value="declined" />
+                      <button className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50" type="submit">
+                        ปฏิเสธ
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              ))}
+              {!pendingInvitations?.length && <p className="text-sm text-slate-400">ไม่มีคำเชิญใหม่</p>}
+            </div>
+          </section>
+        )}
+      </main>
     </div>
   );
 }

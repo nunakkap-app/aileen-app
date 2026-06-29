@@ -34,6 +34,43 @@ export async function inviteCoach(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
+export async function selfCoach(formData: FormData) {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth.user) return;
+
+  await supabase
+    .from("user_roles")
+    .upsert({ user_id: auth.user.id, role: "coach" }, { onConflict: "user_id,role" });
+
+  const category = formData.get("category") as string;
+  const subjectName = formData.get("subject_name") as string;
+  const childId = formData.get("child_id") as string;
+
+  let { data: subject } = await supabase
+    .from("subjects")
+    .select("id")
+    .eq("coach_id", auth.user.id)
+    .eq("name", subjectName)
+    .eq("category", category)
+    .maybeSingle();
+
+  if (!subject) {
+    const { data: created } = await supabase
+      .from("subjects")
+      .insert({ coach_id: auth.user.id, name: subjectName, category })
+      .select("id")
+      .single();
+    subject = created;
+  }
+
+  if (subject) {
+    await supabase.from("enrollments").insert({ child_id: childId, subject_id: subject.id });
+  }
+
+  revalidatePath("/dashboard");
+}
+
 export async function respondInvitation(formData: FormData) {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
