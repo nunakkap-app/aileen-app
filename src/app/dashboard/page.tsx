@@ -1,195 +1,42 @@
 import { createClient } from "@/lib/supabase/server";
 import { NavBar } from "@/components/NavBar";
-import { SubjectPicker } from "@/components/SubjectPicker";
-import { CalendarMonth } from "@/components/CalendarMonth";
-import { categoryColor, categoryLabel, modeDotColor, modeLabel } from "@/lib/subjects";
-import {
-  addChild,
-  addLessonSchedule,
-  addPracticeSchedule,
-  createAssignment,
-  deleteEnrollment,
-  deleteLessonSchedule,
-  deletePracticeSchedule,
-  inviteCoach,
-  respondInvitation,
-  selfCoach,
-  submitHomework,
-} from "./actions";
+import { categoryColor, categoryLabel, modeLabel } from "@/lib/subjects";
 
-type PracticeSchedule = {
-  id: string;
-  weekdays: number[];
-  hours_per_session: number;
-  start_date: string;
-  end_date: string | null;
-  note: string | null;
-  practice_exceptions?: { exception_date: string }[] | null;
-};
-
-type LessonSchedule = {
-  id: string;
-  weekday: number;
-  start_time: string;
-  end_time: string;
-  start_date: string;
-  end_date: string | null;
-  note: string | null;
-};
-
-type EnrollmentForCalendar = {
-  id: string;
-  mode: "lesson" | "practice";
-  subjects: { name: string; category: string } | null;
-  practice_schedules: PracticeSchedule[] | null;
-  lesson_schedules: LessonSchedule[] | null;
-};
-
-function buildCalendarItems(enrollmentsForChild: EnrollmentForCalendar[]) {
-  const practiceItems = enrollmentsForChild.flatMap((e) =>
-    (e.practice_schedules ?? []).map((s) => ({
-      id: s.id,
-      enrollmentId: e.id,
-      label: e.subjects?.name ?? "",
-      category: e.subjects?.category ?? "academic",
-      kind: "practice" as const,
-      weekdays: s.weekdays,
-      hoursPerSession: s.hours_per_session,
-      startDate: s.start_date,
-      endDate: s.end_date,
-    })),
-  );
-  const lessonItems = enrollmentsForChild.flatMap((e) =>
-    (e.lesson_schedules ?? []).map((s) => ({
-      id: s.id,
-      enrollmentId: e.id,
-      label: e.subjects?.name ?? "",
-      category: e.subjects?.category ?? "academic",
-      kind: "lesson" as const,
-      weekdays: [s.weekday],
-      timeRange: `${s.start_time.slice(0, 5)}-${s.end_time.slice(0, 5)}`,
-      startDate: s.start_date,
-      endDate: s.end_date,
-    })),
-  );
-  const excluded = enrollmentsForChild.flatMap((e) =>
-    (e.practice_schedules ?? []).flatMap((s) => (s.practice_exceptions ?? []).map((x) => `${s.id}|${x.exception_date}`)),
-  );
-  return { items: [...practiceItems, ...lessonItems], excluded };
+function getRange(range: "week" | "month") {
+  const today = new Date();
+  if (range === "month") {
+    const start = new Date(today.getFullYear(), today.getMonth(), 1);
+    const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    return { start, end };
+  }
+  const dayOfWeek = today.getDay(); // 0 = Sun
+  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const start = new Date(today);
+  start.setDate(today.getDate() + mondayOffset);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  return { start, end };
 }
 
-const weekdayOptions = [
-  { value: 1, label: "จ" },
-  { value: 2, label: "อ" },
-  { value: 3, label: "พ" },
-  { value: 4, label: "พฤ" },
-  { value: 5, label: "ศ" },
-  { value: 6, label: "ส" },
-  { value: 0, label: "อา" },
-];
+function toDateStr(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
-function PracticeScheduleCard({
-  enrollmentId,
-  practiceSchedules,
+function formatHours(totalSeconds: number) {
+  return (totalSeconds / 3600).toFixed(1);
+}
+
+export default async function DashboardPage({
+  searchParams,
 }: {
-  enrollmentId: string;
-  practiceSchedules: PracticeSchedule[];
+  searchParams: Promise<{ range?: string }>;
 }) {
-  return (
-    <>
-      <ul className="mb-3 flex flex-col gap-1 text-sm text-slate-600">
-        {practiceSchedules.map((s) => (
-          <li key={s.id} className="flex items-center justify-between gap-2">
-            <span>
-              ทุกวัน{s.weekdays.map((w) => weekdayOptions.find((o) => o.value === w)?.label).join(" ")} ·{" "}
-              {s.hours_per_session} ชม. · เริ่ม {s.start_date}
-              {s.end_date ? ` ถึง ${s.end_date}` : ""}
-              {s.note ? ` · ${s.note}` : ""}
-            </span>
-            <form action={deletePracticeSchedule}>
-              <input type="hidden" name="id" value={s.id} />
-              <button className="text-xs text-red-500 hover:underline" type="submit">ลบ</button>
-            </form>
-          </li>
-        ))}
-        {!practiceSchedules.length && <li className="text-slate-400">ยังไม่มีตาราง</li>}
-      </ul>
-      <form action={addPracticeSchedule} className="flex flex-wrap items-center gap-2">
-        <input type="hidden" name="enrollment_id" value={enrollmentId} />
-        <fieldset className="flex gap-1.5 text-xs text-slate-600">
-          {weekdayOptions.map((w) => (
-            <label key={w.value} className="flex items-center gap-0.5 rounded border border-slate-300 px-1.5 py-1">
-              <input type="checkbox" name="weekdays" value={w.value} />
-              {w.label}
-            </label>
-          ))}
-        </fieldset>
-        <input
-          name="hours_per_session"
-          type="number"
-          step="0.5"
-          min="0.5"
-          placeholder="ชม./ครั้ง"
-          required
-          className="w-24 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-        />
-        <input name="start_date" type="date" required className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
-        <input name="end_date" type="date" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
-        <input name="note" placeholder="หมายเหตุ" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
-        <button className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800" type="submit">
-          เพิ่มตาราง
-        </button>
-      </form>
-    </>
-  );
-}
+  const { range: rangeParam } = await searchParams;
+  const range: "week" | "month" = rangeParam === "month" ? "month" : "week";
+  const { start, end } = getRange(range);
+  const startStr = toDateStr(start);
+  const endStr = toDateStr(end);
 
-function LessonScheduleCard({
-  enrollmentId,
-  lessonSchedules,
-}: {
-  enrollmentId: string;
-  lessonSchedules: LessonSchedule[];
-}) {
-  return (
-    <>
-      <ul className="mb-3 flex flex-col gap-1 text-sm text-slate-600">
-        {lessonSchedules.map((s) => (
-          <li key={s.id} className="flex items-center justify-between gap-2">
-            <span>
-              ทุก{weekdayOptions.find((o) => o.value === s.weekday)?.label} · {s.start_time.slice(0, 5)}-{s.end_time.slice(0, 5)} · เริ่ม {s.start_date}
-              {s.end_date ? ` ถึง ${s.end_date}` : ""}
-              {s.note ? ` · ${s.note}` : ""}
-            </span>
-            <form action={deleteLessonSchedule}>
-              <input type="hidden" name="id" value={s.id} />
-              <button className="text-xs text-red-500 hover:underline" type="submit">ลบ</button>
-            </form>
-          </li>
-        ))}
-        {!lessonSchedules.length && <li className="text-slate-400">ยังไม่มีตาราง</li>}
-      </ul>
-      <form action={addLessonSchedule} className="flex flex-wrap items-center gap-2">
-        <input type="hidden" name="enrollment_id" value={enrollmentId} />
-        <select name="weekday" required className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm">
-          {weekdayOptions.map((w) => (
-            <option key={w.value} value={w.value}>ทุก{w.label}</option>
-          ))}
-        </select>
-        <input name="start_time" type="time" required className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
-        <input name="end_time" type="time" required className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
-        <input name="start_date" type="date" required className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
-        <input name="end_date" type="date" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
-        <input name="note" placeholder="หมายเหตุ" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
-        <button className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800" type="submit">
-          เพิ่มตาราง
-        </button>
-      </form>
-    </>
-  );
-}
-
-export default async function DashboardPage() {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return null;
@@ -203,446 +50,151 @@ export default async function DashboardPage() {
   const isCoach = roles?.some((r) => r.role === "coach");
 
   const { data: children } = isParent
-    ? await supabase.from("children").select("*").order("created_at")
+    ? await supabase.from("children").select("id, full_name").order("created_at")
     : { data: null };
-
   const childIds = children?.map((c) => c.id) ?? [];
-
-  const { data: enrollments } = childIds.length
-    ? await supabase
-        .from("enrollments")
-        .select("*, subjects(name, category, profiles(full_name)), children(full_name), practice_schedules(*, practice_exceptions(*)), lesson_schedules(*)")
-        .in("child_id", childIds)
-    : { data: null };
-
-  const enrollmentsByChild = new Map<string, typeof enrollments>();
-  enrollments?.forEach((e) => {
-    const list = enrollmentsByChild.get(e.child_id) ?? [];
-    list.push(e);
-    enrollmentsByChild.set(e.child_id, list);
-  });
 
   const { data: coachSubjectIds } = isCoach
     ? await supabase.from("subjects").select("id").eq("coach_id", auth.user.id)
     : { data: null };
 
+  const { data: parentEnrollments } = childIds.length
+    ? await supabase
+        .from("enrollments")
+        .select("id, mode, child_id, subjects(name, category), children(full_name)")
+        .in("child_id", childIds)
+    : { data: null };
+
   const { data: coachEnrollments } = coachSubjectIds?.length
     ? await supabase
         .from("enrollments")
-        .select("*, subjects(name, category), children(full_name), practice_schedules(*, practice_exceptions(*)), lesson_schedules(*)")
+        .select("id, mode, child_id, subjects(name, category), children(full_name)")
         .in("subject_id", coachSubjectIds.map((s) => s.id))
     : { data: null };
 
-  // "นักเรียนของฉัน" only needs to list students who aren't already shown under
-  // "ลูกของฉัน" — a self-teaching parent manages their own kids there directly.
-  const externalCoachEnrollments = coachEnrollments?.filter((e) => !childIds.includes(e.child_id)) ?? null;
+  async function summarize(enrollments: typeof parentEnrollments) {
+    const ids = enrollments?.map((e) => e.id) ?? [];
+    if (!ids.length) return { byCategory: new Map(), byChild: new Map() };
 
-  const { data: sentInvitations } = isParent
-    ? await supabase.from("invitations").select("*, children(full_name)").order("created_at", { ascending: false })
-    : { data: null };
+    const { data: logs } = await supabase
+      .from("practice_logs")
+      .select("elapsed_seconds, enrollment_id")
+      .in("enrollment_id", ids)
+      .gte("log_date", startStr)
+      .lte("log_date", endStr);
 
-  const { data: pendingInvitations } = isCoach
-    ? await supabase
-        .from("invitations")
-        .select("*, children(full_name)")
-        .eq("status", "pending")
-        .order("created_at", { ascending: false })
-    : { data: null };
+    const enrollmentById = new Map(enrollments!.map((e) => [e.id, e]));
+    const byCategory = new Map<string, { lesson: number; practice: number }>();
+    const byChild = new Map<string, { name: string; seconds: number }>();
 
-  const enrollmentIds = enrollments?.map((e) => e.id) ?? [];
+    logs?.forEach((log) => {
+      const e = enrollmentById.get(log.enrollment_id);
+      if (!e) return;
+      const cat = Array.isArray(e.subjects) ? e.subjects[0]?.category : (e.subjects as { category: string } | null)?.category ?? "academic";
+      const entry = byCategory.get(cat) ?? { lesson: 0, practice: 0 };
+      entry[e.mode as "lesson" | "practice"] += log.elapsed_seconds;
+      byCategory.set(cat, entry);
 
-  const { data: parentAssignments } = enrollmentIds.length
-    ? await supabase
-        .from("assignments")
-        .select("*, submissions(*), enrollments(children(full_name), subjects(name))")
-        .in("enrollment_id", enrollmentIds)
-        .order("due_date", { ascending: true })
-    : { data: null };
+      const childName = Array.isArray(e.children) ? e.children[0]?.full_name : (e.children as { full_name: string } | null)?.full_name;
+      const childEntry = byChild.get(e.child_id) ?? { name: childName ?? "", seconds: 0 };
+      childEntry.seconds += log.elapsed_seconds;
+      byChild.set(e.child_id, childEntry);
+    });
 
-  const { data: coachAssignments } = isCoach
-    ? await supabase
-        .from("assignments")
-        .select("*, submissions(*), enrollments(children(full_name), subjects(name))")
-        .eq("coach_id", auth.user.id)
-        .order("due_date", { ascending: true })
-    : { data: null };
+    return { byCategory, byChild };
+  }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const coachEnrollmentsByChild = new Map<string, { childName: string; items: any[] }>();
-  externalCoachEnrollments?.forEach((e) => {
-    const entry = coachEnrollmentsByChild.get(e.child_id) ?? ({ childName: e.children?.full_name ?? "", items: [] } as { childName: string; items: typeof e[] });
-    entry.items.push(e);
-    coachEnrollmentsByChild.set(e.child_id, entry);
-  });
+  const parentSummary = isParent ? await summarize(parentEnrollments) : null;
+  const coachSummary = isCoach ? await summarize(coachEnrollments) : null;
+
+  const rangeLabel =
+    range === "week"
+      ? `สัปดาห์นี้ (${start.toLocaleDateString("th-TH", { day: "numeric", month: "short" })} - ${end.toLocaleDateString("th-TH", { day: "numeric", month: "short" })})`
+      : `เดือน${start.toLocaleDateString("th-TH", { month: "long", year: "numeric" })}`;
+
+  function CategorySummary({ byCategory }: { byCategory: Map<string, { lesson: number; practice: number }> }) {
+    return (
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {Object.keys(categoryLabel).map((cat) => {
+          const colors = categoryColor[cat];
+          const entry = byCategory.get(cat) ?? { lesson: 0, practice: 0 };
+          const total = entry.lesson + entry.practice;
+          return (
+            <div key={cat} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className={`mb-1 inline-flex items-center gap-1.5 text-sm font-medium ${colors.text}`}>
+                <span className={`h-2 w-2 rounded-full ${colors.dot}`} /> {categoryLabel[cat]}
+              </p>
+              <p className="text-3xl font-semibold text-slate-900">{formatHours(total)} <span className="text-base font-normal text-slate-400">ชม.</span></p>
+              <p className="mt-1 text-xs text-slate-500">
+                {modeLabel.lesson} {formatHours(entry.lesson)} ชม. · {modeLabel.practice} {formatHours(entry.practice)} ชม.
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50">
       <NavBar email={auth.user.email ?? ""} />
       <main className="mx-auto max-w-3xl px-6 py-10">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-xl font-semibold text-slate-900">แดชบอร์ด</h1>
+          <div className="flex gap-2 text-sm">
+            <a
+              href="/dashboard?range=week"
+              className={`rounded-full px-3 py-1.5 ${range === "week" ? "bg-slate-900 text-white" : "border border-slate-200 bg-white text-slate-600"}`}
+            >
+              สัปดาห์นี้
+            </a>
+            <a
+              href="/dashboard?range=month"
+              className={`rounded-full px-3 py-1.5 ${range === "month" ? "bg-slate-900 text-white" : "border border-slate-200 bg-white text-slate-600"}`}
+            >
+              เดือนนี้
+            </a>
+          </div>
+        </div>
+        <p className="mb-6 text-sm text-slate-500">{rangeLabel}</p>
+
         {isParent && (
           <section className="mb-10">
-            <h1 className="mb-4 text-xl font-semibold text-slate-900">ลูกของฉัน</h1>
-
-            <div className="flex flex-col gap-4">
-              {children?.map((c) => (
-                <div key={c.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <p className="mb-1 font-medium text-slate-900">
-                    {c.full_name}
-                    {c.birthdate && <span className="ml-2 text-sm text-slate-400">เกิด {c.birthdate}</span>}
-                  </p>
-
-                  <div className="mb-4 mt-2 flex flex-wrap gap-2">
-                    {enrollmentsByChild.get(c.id)?.map((e) => {
-                      const colors = categoryColor[e.subjects?.category ?? "academic"] ?? categoryColor.academic;
-                      return (
-                        <span
-                          key={e.id}
-                          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${colors.bg} ${colors.text}`}
-                        >
-                          <span className={`h-1.5 w-1.5 rounded-full ${modeDotColor[e.mode]}`} />
-                          {e.subjects?.name} · {categoryLabel[e.subjects?.category]} · {modeLabel[e.mode]}
-                          {e.subjects?.profiles?.full_name && <span className="opacity-70">· ครู {e.subjects.profiles.full_name}</span>}
-                          <form action={deleteEnrollment}>
-                            <input type="hidden" name="id" value={e.id} />
-                            <button className="opacity-60 hover:text-red-500 hover:opacity-100" type="submit" title="ลบกิจกรรม">
-                              ×
-                            </button>
-                          </form>
-                        </span>
-                      );
-                    })}
-                    {!enrollmentsByChild.get(c.id)?.length && (
-                      <span className="text-sm text-slate-400">ยังไม่มีกิจกรรม</span>
-                    )}
-                  </div>
-
-                  {!!enrollmentsByChild.get(c.id)?.length && (
-                    <div className="mb-4">
-                      {(() => {
-                        const { items, excluded } = buildCalendarItems(enrollmentsByChild.get(c.id) ?? []);
-                        return <CalendarMonth items={items} excluded={excluded} />;
-                      })()}
-                      <div className="mt-3 flex flex-col gap-3">
-                        {enrollmentsByChild.get(c.id)?.map((e) => (
-                          <div key={e.id} className="rounded-xl border border-slate-200 p-3">
-                            <p className="mb-2 text-sm font-medium text-slate-700">
-                              {e.subjects?.name} · {e.mode === "lesson" ? "เรียน" : "ซ้อม"}
-                            </p>
-                            {e.mode === "lesson" ? (
-                              <LessonScheduleCard enrollmentId={e.id} lessonSchedules={e.lesson_schedules ?? []} />
-                            ) : (
-                              <PracticeScheduleCard enrollmentId={e.id} practiceSchedules={e.practice_schedules ?? []} />
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <details className="group mb-2">
-                    <summary className="cursor-pointer text-sm font-medium text-indigo-600">
-                      + แอดครู (เชิญด้วยอีเมล)
-                    </summary>
-                    <form action={inviteCoach} className="mt-3 flex flex-wrap gap-2">
-                      <input type="hidden" name="child_id" value={c.id} />
-                      <input
-                        name="coach_email"
-                        type="email"
-                        placeholder="อีเมลครู/โค้ช"
-                        required
-                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-                      />
-                      <SubjectPicker className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
-                      <fieldset className="flex items-center gap-3 text-xs text-slate-600">
-                        <label className="flex items-center gap-1">
-                          <input type="radio" name="mode" value="practice" defaultChecked /> ซ้อม (ยืดหยุ่น)
-                        </label>
-                        <label className="flex items-center gap-1">
-                          <input type="radio" name="mode" value="lesson" /> เรียน (ล็อกเวลา)
-                        </label>
-                      </fieldset>
-                      <input
-                        name="note"
-                        placeholder="สิ่งที่ต้องการ (ถ้ามี)"
-                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-                      />
-                      <button
-                        className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
-                        type="submit"
-                      >
-                        ส่งคำเชิญ
-                      </button>
-                    </form>
-                  </details>
-
-                  <details className="group">
-                    <summary className="cursor-pointer text-sm font-medium text-emerald-600">
-                      + สอนลูกเอง
-                    </summary>
-                    <form action={selfCoach} className="mt-3 flex flex-wrap gap-2">
-                      <input type="hidden" name="child_id" value={c.id} />
-                      <SubjectPicker className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
-                      <fieldset className="flex items-center gap-3 text-xs text-slate-600">
-                        <label className="flex items-center gap-1">
-                          <input type="radio" name="mode" value="practice" defaultChecked /> ซ้อม (ยืดหยุ่น)
-                        </label>
-                        <label className="flex items-center gap-1">
-                          <input type="radio" name="mode" value="lesson" /> เรียน (ล็อกเวลา)
-                        </label>
-                      </fieldset>
-                      <button
-                        className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
-                        type="submit"
-                      >
-                        เริ่มสอนเอง
-                      </button>
-                    </form>
-                  </details>
-                </div>
-              ))}
-              {!children?.length && (
-                <p className="rounded-2xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-400">
-                  ยังไม่มีข้อมูลลูก — เพิ่มด้านล่างได้เลย
-                </p>
-              )}
-            </div>
-
-            <form action={addChild} className="mt-5 flex gap-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <input
-                name="full_name"
-                placeholder="ชื่อลูก"
-                required
-                className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              />
-              <input name="birthdate" type="date" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-              <button className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800" type="submit">
-                เพิ่มลูก
-              </button>
-            </form>
-
-            {!!sentInvitations?.length && (
-              <div className="mt-6">
-                <h3 className="mb-2 text-sm font-semibold text-slate-500">คำเชิญที่ส่งไปแล้ว</h3>
-                <ul className="flex flex-col gap-1 text-sm">
-                  {sentInvitations.map((inv) => (
-                    <li key={inv.id} className="text-slate-600">
-                      {inv.children?.full_name} → {inv.coach_email} ({inv.subject_name}) ·{" "}
-                      <span
-                        className={
-                          inv.status === "accepted"
-                            ? "text-emerald-600"
-                            : inv.status === "declined"
-                              ? "text-red-600"
-                              : "text-amber-600"
-                        }
-                      >
-                        {inv.status === "accepted" ? "ตอบรับแล้ว" : inv.status === "declined" ? "ปฏิเสธ" : "รอตอบรับ"}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+            <h2 className="mb-3 text-sm font-semibold text-slate-500">ชั่วโมงเรียน/ซ้อมของลูก แยกตามหมวด</h2>
+            <CategorySummary byCategory={parentSummary!.byCategory} />
+            {!!parentSummary!.byChild.size && (
+              <div className="mt-4 flex flex-col gap-1 text-sm text-slate-600">
+                {[...parentSummary!.byChild.entries()].map(([childId, c]) => (
+                  <p key={childId}>{c.name}: {formatHours(c.seconds)} ชม.</p>
+                ))}
               </div>
+            )}
+            {!parentSummary!.byChild.size && (
+              <p className="mt-4 text-sm text-slate-400">ยังไม่มีการบันทึกเวลาในช่วงนี้</p>
             )}
           </section>
         )}
 
-        {isParent && !!parentAssignments?.length && (
-          <section className="mb-10">
-            <h2 className="mb-4 text-xl font-semibold text-slate-900">การบ้าน</h2>
-            <div className="flex flex-col gap-3">
-              {parentAssignments.map((a) => {
-                const submission = a.submissions?.[0];
-                return (
-                  <div key={a.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <p className="text-sm font-medium text-slate-900">
-                      {a.enrollments?.children?.full_name} · {a.enrollments?.subjects?.name}
-                    </p>
-                    <p className="mt-1 font-medium text-slate-900">{a.title}</p>
-                    {a.description && <p className="text-sm text-slate-600">{a.description}</p>}
-                    {a.due_date && <p className="text-sm text-slate-400">กำหนดส่ง {a.due_date}</p>}
-                    {!!a.suggested_weekdays?.length && (
-                      <p className="text-sm text-amber-600">
-                        ครูแนะนำให้ฝึก: ทุก{a.suggested_weekdays.map((w: number) => weekdayOptions.find((o) => o.value === w)?.label).join(" ")}
-                        {a.suggested_minutes ? ` · ${a.suggested_minutes} นาที` : ""}
-                      </p>
-                    )}
-
-                    {submission?.status === "submitted" ? (
-                      <p className="mt-2 text-sm text-emerald-600">
-                        ส่งแล้วเมื่อ {new Date(submission.submitted_at).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" })}
-                      </p>
-                    ) : (
-                      <form action={submitHomework} className="mt-3 flex flex-wrap gap-2">
-                        <input type="hidden" name="submission_id" value={submission?.id} />
-                        <input
-                          name="content"
-                          placeholder="โน้ตถึงครู (ถ้ามี)"
-                          className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-                        />
-                        <button className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700" type="submit">
-                          ส่งการบ้าน
-                        </button>
-                      </form>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        {isCoach && !!externalCoachEnrollments?.length && (
-          <section className="mb-10">
-            <h2 className="mb-4 text-xl font-semibold text-slate-900">นักเรียนของฉัน</h2>
-            <div className="flex flex-col gap-4">
-              {[...coachEnrollmentsByChild.entries()].map(([childId, { childName, items }]) => (
-                <div key={childId} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <p className="mb-2 font-medium text-slate-900">{childName}</p>
-                  <div className="mb-4 flex flex-wrap gap-2">
-                    {items?.map((e) => {
-                      const colors = categoryColor[e.subjects?.category ?? "academic"] ?? categoryColor.academic;
-                      return (
-                        <span
-                          key={e.id}
-                          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${colors.bg} ${colors.text}`}
-                        >
-                          <span className={`h-1.5 w-1.5 rounded-full ${modeDotColor[e.mode]}`} />
-                          {e.subjects?.name} · {categoryLabel[e.subjects?.category]} · {modeLabel[e.mode]}
-                          <form action={deleteEnrollment}>
-                            <input type="hidden" name="id" value={e.id} />
-                            <button className="opacity-60 hover:text-red-500 hover:opacity-100" type="submit" title="ลบกิจกรรม">
-                              ×
-                            </button>
-                          </form>
-                        </span>
-                      );
-                    })}
-                  </div>
-                  {(() => {
-                    const built = buildCalendarItems(items ?? []);
-                    return <CalendarMonth items={built.items} excluded={built.excluded} />;
-                  })()}
-                  <div className="mt-3 flex flex-col gap-3">
-                    {items?.map((e) => (
-                      <div key={e.id} className="rounded-xl border border-slate-200 p-3">
-                        <p className="mb-2 text-sm font-medium text-slate-700">
-                          {e.subjects?.name} · {e.mode === "lesson" ? "เรียน" : "ซ้อม"}
-                        </p>
-                        {e.mode === "lesson" ? (
-                          <LessonScheduleCard enrollmentId={e.id} lessonSchedules={e.lesson_schedules ?? []} />
-                        ) : (
-                          <PracticeScheduleCard enrollmentId={e.id} practiceSchedules={e.practice_schedules ?? []} />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {isCoach && !!coachEnrollments?.length && (
-          <section className="mb-10">
-            <h2 className="mb-4 text-xl font-semibold text-slate-900">การบ้าน</h2>
-            <form action={createAssignment} className="mb-4 flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <select name="enrollment_id" required className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm">
-                {coachEnrollments.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.children?.full_name} · {e.subjects?.name}
-                  </option>
-                ))}
-              </select>
-              <input name="title" placeholder="ชื่อการบ้าน" required className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
-              <input name="description" placeholder="รายละเอียด" className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
-              <input name="due_date" type="date" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
-              <div className="flex w-full flex-wrap items-center gap-2">
-                <span className="text-xs text-slate-500">แนะนำตารางฝึก (ถ้ามี):</span>
-                <fieldset className="flex gap-1.5 text-xs text-slate-600">
-                  {weekdayOptions.map((w) => (
-                    <label key={w.value} className="flex items-center gap-0.5 rounded border border-slate-300 px-1.5 py-1">
-                      <input type="checkbox" name="suggested_weekdays" value={w.value} />
-                      {w.label}
-                    </label>
-                  ))}
-                </fieldset>
-                <input
-                  name="suggested_minutes"
-                  type="number"
-                  min="1"
-                  placeholder="นาที/ครั้ง"
-                  className="w-24 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-                />
-              </div>
-              <button className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700" type="submit">
-                มอบหมาย
-              </button>
-            </form>
-            <div className="flex flex-col gap-3">
-              {coachAssignments?.map((a) => {
-                const submission = a.submissions?.[0];
-                return (
-                  <div key={a.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <p className="text-sm font-medium text-slate-900">
-                      {a.enrollments?.children?.full_name} · {a.enrollments?.subjects?.name}
-                    </p>
-                    <p className="mt-1 font-medium text-slate-900">{a.title}</p>
-                    {a.due_date && <p className="text-sm text-slate-400">กำหนดส่ง {a.due_date}</p>}
-                    {!!a.suggested_weekdays?.length && (
-                      <p className="text-sm text-amber-600">
-                        แนะนำให้ฝึก: ทุก{a.suggested_weekdays.map((w: number) => weekdayOptions.find((o) => o.value === w)?.label).join(" ")}
-                        {a.suggested_minutes ? ` · ${a.suggested_minutes} นาที` : ""}
-                      </p>
-                    )}
-                    <p className="mt-2 text-sm">
-                      {submission?.status === "submitted" ? (
-                        <span className="text-emerald-600">
-                          ส่งแล้วเมื่อ {new Date(submission.submitted_at).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" })}
-                        </span>
-                      ) : (
-                        <span className="text-amber-600">ยังไม่ส่ง</span>
-                      )}
-                    </p>
-                  </div>
-                );
-              })}
-              {!coachAssignments?.length && <p className="text-sm text-slate-400">ยังไม่มีการบ้านที่มอบหมาย</p>}
-            </div>
-          </section>
-        )}
-
         {isCoach && (
-          <section>
-            <h2 className="mb-4 text-xl font-semibold text-slate-900">คำเชิญที่รอตอบรับ</h2>
-            <div className="flex flex-col gap-3">
-              {pendingInvitations?.map((inv) => (
-                <div key={inv.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <p className="mb-3 text-sm text-slate-700">
-                    {inv.children?.full_name} อยากเรียน <strong>{inv.subject_name}</strong> ({categoryLabel[inv.category]})
-                    {inv.note ? ` — ${inv.note}` : ""}
-                  </p>
-                  <div className="flex gap-2">
-                    <form action={respondInvitation}>
-                      <input type="hidden" name="invitation_id" value={inv.id} />
-                      <input type="hidden" name="decision" value="accepted" />
-                      <button className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700" type="submit">
-                        ตอบรับ
-                      </button>
-                    </form>
-                    <form action={respondInvitation}>
-                      <input type="hidden" name="invitation_id" value={inv.id} />
-                      <input type="hidden" name="decision" value="declined" />
-                      <button className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50" type="submit">
-                        ปฏิเสธ
-                      </button>
-                    </form>
-                  </div>
-                </div>
-              ))}
-              {!pendingInvitations?.length && <p className="text-sm text-slate-400">ไม่มีคำเชิญใหม่</p>}
-            </div>
+          <section className="mb-10">
+            <h2 className="mb-3 text-sm font-semibold text-slate-500">ชั่วโมงที่สอน แยกตามหมวด</h2>
+            <CategorySummary byCategory={coachSummary!.byCategory} />
+            {!!coachSummary!.byChild.size && (
+              <div className="mt-4 flex flex-col gap-1 text-sm text-slate-600">
+                {[...coachSummary!.byChild.entries()].map(([childId, c]) => (
+                  <p key={childId}>{c.name}: {formatHours(c.seconds)} ชม.</p>
+                ))}
+              </div>
+            )}
+            {!coachSummary!.byChild.size && (
+              <p className="mt-4 text-sm text-slate-400">ยังไม่มีการบันทึกเวลาในช่วงนี้</p>
+            )}
           </section>
         )}
+
+        <a href="/dashboard/manage" className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:underline">
+          ไปจัดการตาราง/ลูก/การบ้าน ›
+        </a>
       </main>
     </div>
   );

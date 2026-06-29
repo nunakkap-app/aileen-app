@@ -32,8 +32,8 @@ export default async function SessionPage({
     <div className="min-h-screen bg-slate-50">
       <NavBar email={auth.user.email ?? ""} />
       <main className="mx-auto max-w-lg px-6 py-10">
-        <a href="/dashboard" className="mb-4 inline-block text-sm text-indigo-600 hover:underline">
-          ‹ กลับแดชบอร์ด
+        <a href="/dashboard/manage" className="mb-4 inline-block text-sm text-indigo-600 hover:underline">
+          ‹ กลับไปจัดการตาราง
         </a>
         <h1 className="mb-1 text-xl font-semibold text-slate-900">
           {enrollment?.children?.full_name} · {enrollment?.subjects?.name}
