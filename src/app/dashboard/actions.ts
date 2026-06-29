@@ -34,21 +34,75 @@ export async function inviteCoach(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-export async function addSchedule(formData: FormData) {
+export async function addPracticeSchedule(formData: FormData) {
+  const supabase = await createClient();
+
+  const weekdays = formData.getAll("weekdays").map(Number);
+
+  await supabase.from("practice_schedules").insert({
+    enrollment_id: formData.get("enrollment_id") as string,
+    weekdays,
+    hours_per_session: Number(formData.get("hours_per_session")),
+    start_date: formData.get("start_date") as string,
+    end_date: (formData.get("end_date") as string) || null,
+    note: (formData.get("note") as string) || null,
+  });
+
+  revalidatePath("/dashboard");
+}
+
+export async function deletePracticeSchedule(formData: FormData) {
+  const supabase = await createClient();
+  await supabase.from("practice_schedules").delete().eq("id", formData.get("id") as string);
+  revalidatePath("/dashboard");
+}
+
+export async function createAssignment(formData: FormData) {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return;
 
-  const date = formData.get("date") as string;
-  const startTime = formData.get("start_time") as string;
-  const endTime = formData.get("end_time") as string;
+  const enrollmentId = formData.get("enrollment_id") as string;
 
-  await supabase.from("schedules").insert({
-    enrollment_id: formData.get("enrollment_id") as string,
-    start_time: `${date}T${startTime}:00`,
-    end_time: `${date}T${endTime}:00`,
-    location: (formData.get("location") as string) || null,
-  });
+  const { data: enrollment } = await supabase
+    .from("enrollments")
+    .select("child_id")
+    .eq("id", enrollmentId)
+    .single();
+
+  const { data: assignment } = await supabase
+    .from("assignments")
+    .insert({
+      enrollment_id: enrollmentId,
+      coach_id: auth.user.id,
+      title: formData.get("title") as string,
+      description: (formData.get("description") as string) || null,
+      due_date: (formData.get("due_date") as string) || null,
+    })
+    .select("id")
+    .single();
+
+  if (assignment && enrollment) {
+    await supabase.from("submissions").insert({
+      assignment_id: assignment.id,
+      child_id: enrollment.child_id,
+    });
+  }
+
+  revalidatePath("/dashboard");
+}
+
+export async function submitHomework(formData: FormData) {
+  const supabase = await createClient();
+
+  await supabase
+    .from("submissions")
+    .update({
+      content: (formData.get("content") as string) || null,
+      status: "submitted",
+      submitted_at: new Date().toISOString(),
+    })
+    .eq("id", formData.get("submission_id") as string);
 
   revalidatePath("/dashboard");
 }

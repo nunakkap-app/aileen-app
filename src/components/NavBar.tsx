@@ -9,7 +9,6 @@ export function NavBar({ email }: { email: string }) {
         </a>
         <nav className="flex items-center gap-5 text-sm">
           <a href="/dashboard" className="text-slate-600 hover:text-slate-900">แดชบอร์ด</a>
-          <a href="/coaches" className="text-slate-600 hover:text-slate-900">หาครู/โค้ช</a>
           <span className="hidden text-slate-400 sm:inline">{email}</span>
           <form action={logout}>
             <button className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-slate-50" type="submit">
