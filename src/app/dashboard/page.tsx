@@ -231,6 +231,10 @@ export default async function DashboardPage() {
         .in("subject_id", coachSubjectIds.map((s) => s.id))
     : { data: null };
 
+  // "นักเรียนของฉัน" only needs to list students who aren't already shown under
+  // "ลูกของฉัน" — a self-teaching parent manages their own kids there directly.
+  const externalCoachEnrollments = coachEnrollments?.filter((e) => !childIds.includes(e.child_id)) ?? null;
+
   const { data: sentInvitations } = isParent
     ? await supabase.from("invitations").select("*, children(full_name)").order("created_at", { ascending: false })
     : { data: null };
@@ -263,7 +267,7 @@ export default async function DashboardPage() {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const coachEnrollmentsByChild = new Map<string, { childName: string; items: any[] }>();
-  coachEnrollments?.forEach((e) => {
+  externalCoachEnrollments?.forEach((e) => {
     const entry = coachEnrollmentsByChild.get(e.child_id) ?? ({ childName: e.children?.full_name ?? "", items: [] } as { childName: string; items: typeof e[] });
     entry.items.push(e);
     coachEnrollmentsByChild.set(e.child_id, entry);
@@ -455,6 +459,12 @@ export default async function DashboardPage() {
                     <p className="mt-1 font-medium text-slate-900">{a.title}</p>
                     {a.description && <p className="text-sm text-slate-600">{a.description}</p>}
                     {a.due_date && <p className="text-sm text-slate-400">กำหนดส่ง {a.due_date}</p>}
+                    {!!a.suggested_weekdays?.length && (
+                      <p className="text-sm text-amber-600">
+                        ครูแนะนำให้ฝึก: ทุก{a.suggested_weekdays.map((w: number) => weekdayOptions.find((o) => o.value === w)?.label).join(" ")}
+                        {a.suggested_minutes ? ` · ${a.suggested_minutes} นาที` : ""}
+                      </p>
+                    )}
 
                     {submission?.status === "submitted" ? (
                       <p className="mt-2 text-sm text-emerald-600">
@@ -480,7 +490,7 @@ export default async function DashboardPage() {
           </section>
         )}
 
-        {isCoach && !!coachEnrollments?.length && (
+        {isCoach && !!externalCoachEnrollments?.length && (
           <section className="mb-10">
             <h2 className="mb-4 text-xl font-semibold text-slate-900">นักเรียนของฉัน</h2>
             <div className="flex flex-col gap-4">
@@ -544,6 +554,24 @@ export default async function DashboardPage() {
               <input name="title" placeholder="ชื่อการบ้าน" required className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
               <input name="description" placeholder="รายละเอียด" className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
               <input name="due_date" type="date" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
+              <div className="flex w-full flex-wrap items-center gap-2">
+                <span className="text-xs text-slate-500">แนะนำตารางฝึก (ถ้ามี):</span>
+                <fieldset className="flex gap-1.5 text-xs text-slate-600">
+                  {weekdayOptions.map((w) => (
+                    <label key={w.value} className="flex items-center gap-0.5 rounded border border-slate-300 px-1.5 py-1">
+                      <input type="checkbox" name="suggested_weekdays" value={w.value} />
+                      {w.label}
+                    </label>
+                  ))}
+                </fieldset>
+                <input
+                  name="suggested_minutes"
+                  type="number"
+                  min="1"
+                  placeholder="นาที/ครั้ง"
+                  className="w-24 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+                />
+              </div>
               <button className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700" type="submit">
                 มอบหมาย
               </button>
@@ -558,6 +586,12 @@ export default async function DashboardPage() {
                     </p>
                     <p className="mt-1 font-medium text-slate-900">{a.title}</p>
                     {a.due_date && <p className="text-sm text-slate-400">กำหนดส่ง {a.due_date}</p>}
+                    {!!a.suggested_weekdays?.length && (
+                      <p className="text-sm text-amber-600">
+                        แนะนำให้ฝึก: ทุก{a.suggested_weekdays.map((w: number) => weekdayOptions.find((o) => o.value === w)?.label).join(" ")}
+                        {a.suggested_minutes ? ` · ${a.suggested_minutes} นาที` : ""}
+                      </p>
+                    )}
                     <p className="mt-2 text-sm">
                       {submission?.status === "submitted" ? (
                         <span className="text-emerald-600">

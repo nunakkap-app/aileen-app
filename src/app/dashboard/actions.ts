@@ -93,6 +93,8 @@ export async function createAssignment(formData: FormData) {
     .eq("id", enrollmentId)
     .single();
 
+  const suggestedWeekdays = formData.getAll("suggested_weekdays").map(Number);
+
   const { data: assignment } = await supabase
     .from("assignments")
     .insert({
@@ -101,6 +103,8 @@ export async function createAssignment(formData: FormData) {
       title: formData.get("title") as string,
       description: (formData.get("description") as string) || null,
       due_date: (formData.get("due_date") as string) || null,
+      suggested_weekdays: suggestedWeekdays.length ? suggestedWeekdays : null,
+      suggested_minutes: formData.get("suggested_minutes") ? Number(formData.get("suggested_minutes")) : null,
     })
     .select("id")
     .single();
