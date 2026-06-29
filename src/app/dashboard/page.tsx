@@ -76,9 +76,9 @@ function getChildName(e: EnrollmentRow) {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; child?: string }>;
 }) {
-  const { range: rangeParam } = await searchParams;
+  const { range: rangeParam, child: childParam } = await searchParams;
   const range: "week" | "month" = rangeParam === "month" ? "month" : "week";
   const { start, end } = getRange(range);
   const startStr = toDateStr(start);
@@ -101,6 +101,7 @@ export default async function DashboardPage({
     ? await supabase.from("children").select("id, full_name").order("created_at")
     : { data: null };
   const childIds = children?.map((c) => c.id) ?? [];
+  const selectedChildId = childParam && childIds.includes(childParam) ? childParam : null;
 
   const { data: coachSubjectIds } = isCoach
     ? await supabase.from("subjects").select("id").eq("coach_id", auth.user.id)
@@ -183,7 +184,11 @@ export default async function DashboardPage({
     return { byCategoryActual, byCategoryPlanned, byChild };
   }
 
-  const parentSummary = isParent ? await summarize(parentEnrollments as EnrollmentRow[] | null) : null;
+  const filteredParentEnrollments = selectedChildId
+    ? (parentEnrollments as EnrollmentRow[] | null)?.filter((e) => e.child_id === selectedChildId) ?? null
+    : (parentEnrollments as EnrollmentRow[] | null);
+
+  const parentSummary = isParent ? await summarize(filteredParentEnrollments) : null;
   const coachSummary = isCoach ? await summarize(coachEnrollments as EnrollmentRow[] | null) : null;
 
   const rangeLabel =
@@ -250,9 +255,31 @@ export default async function DashboardPage({
         </div>
         <p className="mb-6 text-sm text-slate-500">{rangeLabel}</p>
 
+        {isParent && children && children.length > 1 && (
+          <div className="mb-4 flex flex-wrap gap-2 text-sm">
+            <a
+              href={`/dashboard?range=${range}`}
+              className={`rounded-full px-3 py-1.5 ${!selectedChildId ? "bg-slate-900 text-white" : "border border-slate-200 bg-white text-slate-600"}`}
+            >
+              ทั้งหมด
+            </a>
+            {children.map((c) => (
+              <a
+                key={c.id}
+                href={`/dashboard?range=${range}&child=${c.id}`}
+                className={`rounded-full px-3 py-1.5 ${selectedChildId === c.id ? "bg-slate-900 text-white" : "border border-slate-200 bg-white text-slate-600"}`}
+              >
+                {c.full_name}
+              </a>
+            ))}
+          </div>
+        )}
+
         {isParent && (
           <section className="mb-10">
-            <h2 className="mb-3 text-sm font-semibold text-slate-500">ชั่วโมงเรียน/ซ้อมของลูก แยกตามหมวด</h2>
+            <h2 className="mb-3 text-sm font-semibold text-slate-500">
+              ชั่วโมงเรียน/ซ้อม{selectedChildId ? `ของ${children?.find((c) => c.id === selectedChildId)?.full_name}` : "ของลูก"} แยกตามหมวด
+            </h2>
             <CategorySummary byCategoryActual={parentSummary!.byCategoryActual} byCategoryPlanned={parentSummary!.byCategoryPlanned} />
             {!!parentSummary!.byChild.size && (
               <div className="mt-4 flex flex-col gap-1 text-sm text-slate-600">

@@ -8,11 +8,68 @@ export async function addChild(formData: FormData) {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return;
 
-  await supabase.from("children").insert({
-    parent_id: auth.user.id,
-    full_name: formData.get("full_name") as string,
-    birthdate: (formData.get("birthdate") as string) || null,
+  const { data: child } = await supabase
+    .from("children")
+    .insert({
+      parent_id: auth.user.id,
+      full_name: formData.get("full_name") as string,
+      birthdate: (formData.get("birthdate") as string) || null,
+    })
+    .select("id")
+    .single();
+
+  if (child) {
+    await supabase.from("child_guardians").insert({ child_id: child.id, user_id: auth.user.id, is_owner: true });
+  }
+
+  revalidatePath("/dashboard/manage");
+}
+
+export async function inviteParent(formData: FormData) {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth.user) return;
+
+  await supabase.from("parent_invitations").insert({
+    child_id: formData.get("child_id") as string,
+    invited_by: auth.user.id,
+    invitee_email: formData.get("invitee_email") as string,
   });
+
+  revalidatePath("/dashboard/manage");
+}
+
+export async function respondParentInvitation(formData: FormData) {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth.user) return;
+
+  const invitationId = formData.get("invitation_id") as string;
+  const decision = formData.get("decision") as "accepted" | "declined";
+
+  const { data: invitation } = await supabase
+    .from("parent_invitations")
+    .select("*")
+    .eq("id", invitationId)
+    .single();
+
+  if (!invitation) return;
+
+  if (decision === "accepted") {
+    await supabase.from("child_guardians").insert({
+      child_id: invitation.child_id,
+      user_id: auth.user.id,
+      is_owner: false,
+    });
+    await supabase
+      .from("user_roles")
+      .upsert({ user_id: auth.user.id, role: "parent" }, { onConflict: "user_id,role" });
+  }
+
+  await supabase
+    .from("parent_invitations")
+    .update({ status: decision, responded_at: new Date().toISOString() })
+    .eq("id", invitationId);
 
   revalidatePath("/dashboard/manage");
 }
