@@ -1,36 +1,29 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Aileen
 
-## Getting Started
+ระบบเก็บข้อมูลตารางซ้อม/เรียนพิเศษ การบ้าน และผลประเมิน สำหรับผู้ปกครองและครู/โค้ช (กีฬา/ดนตรี/วิชาการ)
 
-First, run the development server:
+## Setup
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+1. สร้าง Supabase project ใหม่ (account แยกจาก TST)
+2. รัน SQL ใน `supabase/migrations/0001_init.sql` ผ่าน Supabase SQL editor
+3. คัดลอก `.env.local.example` เป็น `.env.local` แล้วกรอก `NEXT_PUBLIC_SUPABASE_URL` และ `NEXT_PUBLIC_SUPABASE_ANON_KEY` จากหน้า Project Settings → API
+4. `npm install`
+5. `npm run dev` แล้วเปิด http://localhost:3000
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## สถานะปัจจุบัน (MVP step 1)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Auth (signup/login/logout) พร้อมเลือก role ผู้ปกครอง/ครู
+- ผู้ปกครอง: เพิ่ม/ดูรายชื่อลูก
+- ครู: เพิ่ม/ดูวิชาที่สอน
+- Schema เต็มรูปแบบรองรับ flow ถัดไปแล้ว (enrollments, schedules, attendance, assignments, submissions, evaluations, benchmarks) — ยังไม่มี UI
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## ขั้นต่อไป
 
-## Learn More
+- หน้าผูก enrollment (ครูรับเด็กเข้าวิชา)
+- หน้าตารางซ้อม/เรียน + เช็คชื่อ
+- หน้าสั่ง/ส่ง/ตรวจการบ้าน + คอมเมนต์
+- Dashboard วิเคราะห์ผลเทียบ benchmark
 
-To learn more about Next.js, take a look at the following resources:
+## Deploy
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Push repo นี้ขึ้น GitHub แล้วเชื่อมกับ Vercel (เพิ่ม env vars เดียวกันใน Vercel project settings)
