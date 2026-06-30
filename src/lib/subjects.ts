@@ -12,6 +12,7 @@ export const subjectOptions: Record<string, string[]> = {
     "กรีฑา",
     "เทควันโด",
     "ยูโด",
+    "บัลเล่ต์",
   ],
   music: [
     "เปียโน",
