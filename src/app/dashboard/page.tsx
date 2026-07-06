@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
 import { NavBar } from "@/components/NavBar";
 import { categoryColor, categoryLabel, modeLabel } from "@/lib/subjects";
 
@@ -88,6 +89,7 @@ export default async function DashboardPage({
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return null;
+  if (auth.user.user_metadata?.is_child === true) redirect("/child");
 
   const { data: roles } = await supabase
     .from("user_roles")
