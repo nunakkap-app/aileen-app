@@ -51,13 +51,14 @@ export default async function HomeworkDetailPage({
   const colors = categoryColor[category] ?? categoryColor.academic;
 
   const isOverdue = assignment.due_date && new Date(assignment.due_date) < new Date() && submission?.status !== "submitted";
+  const isChild = auth.user.user_metadata?.is_child === true;
 
   return (
     <div className="min-h-screen bg-slate-50">
       <NavBar email={auth.user.email ?? ""} />
       <main className="mx-auto max-w-lg px-6 py-10">
         <div className="mb-4 flex items-center justify-between">
-          <a href="/dashboard/manage" className="text-sm text-indigo-600 hover:underline">
+          <a href={isChild ? "/child" : "/dashboard/manage"} className="text-sm text-indigo-600 hover:underline">
             ‹ กลับ
           </a>
           <a
@@ -148,6 +149,15 @@ export default async function HomeworkDetailPage({
 
         {/* Practice / close actions */}
         <div className="mb-4 flex flex-wrap gap-2">
+          {isChild && (
+            <a
+              href={`/child/timer/${assignmentId}`}
+              className="flex items-center gap-2 rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2.5 text-sm font-medium text-indigo-700 transition-colors hover:bg-indigo-100"
+            >
+              ⏱ จับเวลา
+            </a>
+          )}
+
           <form action={practiceHomeworkToday}>
             <input type="hidden" name="assignment_id" value={assignmentId} />
             <input type="hidden" name="enrollment_id" value={enrollmentId} />

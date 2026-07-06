@@ -14,6 +14,7 @@ import {
   createAssignment,
   deleteEnrollment,
   deletePracticeSchedule,
+  updatePracticeSchedule,
   inviteCoach,
   inviteParent,
   respondInvitation,
@@ -110,23 +111,40 @@ function PracticeScheduleCard({
 }) {
   return (
     <>
-      <ul className="mb-3 flex flex-col gap-1 text-sm text-slate-600">
+      <div className="mb-3 flex flex-col gap-3">
         {practiceSchedules.map((s) => (
-          <li key={s.id} className="flex items-center justify-between gap-2">
-            <span>
-              ทุกวัน{s.weekdays.map((w) => weekdayOptions.find((o) => o.value === w)?.label).join(" ")} ·{" "}
-              {s.hours_per_session} ชม. · เริ่ม {s.start_date}
-              {s.end_date ? ` ถึง ${s.end_date}` : ""}
-              {s.note ? ` · ${s.note}` : ""}
-            </span>
+          <form key={s.id} action={updatePracticeSchedule} className="rounded-lg border border-slate-200 bg-slate-50 p-3 flex flex-wrap items-center gap-2">
+            <input type="hidden" name="id" value={s.id} />
+            <fieldset className="flex gap-1.5 text-xs text-slate-600">
+              {weekdayOptions.map((w) => (
+                <label key={w.value} className="flex items-center gap-0.5 rounded border border-slate-300 bg-white px-1.5 py-1">
+                  <input type="checkbox" name="weekdays" value={w.value} defaultChecked={s.weekdays.includes(w.value)} />
+                  {w.label}
+                </label>
+              ))}
+            </fieldset>
+            <input
+              name="hours_per_session"
+              type="number"
+              step="0.5"
+              min="0.5"
+              defaultValue={s.hours_per_session}
+              required
+              className="w-20 rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm"
+            />
+            <span className="text-xs text-slate-500">ชม.</span>
+            <input name="start_date" type="date" defaultValue={s.start_date} required className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm" />
+            <input name="end_date" type="date" defaultValue={s.end_date ?? ""} className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm" />
+            <input name="note" defaultValue={s.note ?? ""} placeholder="หมายเหตุ" className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm" />
+            <button className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700" type="submit">บันทึก</button>
             <form action={deletePracticeSchedule}>
               <input type="hidden" name="id" value={s.id} />
               <button className="text-xs text-red-500 hover:underline" type="submit">ลบ</button>
             </form>
-          </li>
+          </form>
         ))}
-        {!practiceSchedules.length && <li className="text-slate-400">ยังไม่มีตาราง</li>}
-      </ul>
+        {!practiceSchedules.length && <p className="text-sm text-slate-400">ยังไม่มีตาราง</p>}
+      </div>
       <form action={addPracticeSchedule} className="flex flex-wrap items-center gap-2">
         <input type="hidden" name="enrollment_id" value={enrollmentId} />
         <fieldset className="flex gap-1.5 text-xs text-slate-600">
@@ -175,7 +193,7 @@ export default async function ManagePage({
   // Round 2: roles + pendingParentInvitations in parallel
   const [{ data: roles }, { data: pendingParentInvitations }] = await Promise.all([
     supabase.from("user_roles").select("role").eq("user_id", auth.user.id),
-    supabase.from("parent_invitations").select("*, children(full_name)").eq("status", "pending").order("created_at", { ascending: false }),
+    supabase.from("parent_invitations").select("*, children(full_name)").eq("status", "pending").eq("invitee_email", auth.user.email ?? "").order("created_at", { ascending: false }),
   ]);
 
   const isParent = roles?.some((r) => r.role === "parent");
@@ -190,7 +208,7 @@ export default async function ManagePage({
       ? supabase.from("subjects").select("id").eq("coach_id", auth.user.id)
       : Promise.resolve({ data: null }),
     isCoach
-      ? supabase.from("invitations").select("*, children(full_name)").eq("status", "pending").order("created_at", { ascending: false })
+      ? supabase.from("invitations").select("*, children(full_name)").eq("status", "pending").eq("coach_email", auth.user.email ?? "").order("created_at", { ascending: false })
       : Promise.resolve({ data: null }),
   ]);
 

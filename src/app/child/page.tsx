@@ -222,7 +222,7 @@ export default async function ChildHomePage({
                 const sub = a.submissions?.[0];
                 const submitted = sub?.status === "submitted";
                 return (
-                  <a key={a.id} href={`/child/timer/${a.id}`}
+                  <a key={a.id} href={`/dashboard/homework/${a.id}`}
                     className={`block rounded-xl border p-3 transition-colors hover:border-indigo-200 ${submitted ? "border-emerald-100 bg-emerald-50" : "border-slate-200 bg-white"}`}>
                     <div className="flex items-start justify-between gap-2">
                       <div>

@@ -134,8 +134,9 @@ export default async function DashboardPage({
 
   const hasExternalStudents = coachEnrollments?.some((e) => !childIds.includes(e.child_id)) ?? false;
 
-  function plannedSecondsFor(e: EnrollmentRow) {
-    let seconds = 0;
+  function plannedSecondsFor(e: EnrollmentRow): { lesson: number; practice: number } {
+    let lesson = 0;
+    let practice = 0;
     e.practice_schedules?.forEach((s) => {
       const excluded = new Set((s.practice_exceptions ?? []).map((x) => x.exception_date));
       dateStrsInRange.forEach((dateStr) => {
@@ -143,7 +144,7 @@ export default async function DashboardPage({
         if (!s.weekdays.includes(weekday)) return;
         if (dateStr < s.start_date || (s.end_date && dateStr > s.end_date)) return;
         if (excluded.has(dateStr)) return;
-        seconds += s.hours_per_session * 3600;
+        practice += s.hours_per_session * 3600;
       });
     });
     e.lesson_schedules?.forEach((s) => {
@@ -151,10 +152,10 @@ export default async function DashboardPage({
         const weekday = new Date(dateStr).getDay();
         if (s.weekday !== weekday) return;
         if (dateStr < s.start_date || (s.end_date && dateStr > s.end_date)) return;
-        seconds += timeToSeconds(s.end_time) - timeToSeconds(s.start_time);
+        lesson += timeToSeconds(s.end_time) - timeToSeconds(s.start_time);
       });
     });
-    return seconds;
+    return { lesson, practice };
   }
 
   async function summarize(enrollments: EnrollmentRow[] | null) {
@@ -166,7 +167,9 @@ export default async function DashboardPage({
     enrollments?.forEach((e) => {
       const cat = getCategory(e);
       const planned = byCategoryPlanned.get(cat) ?? { lesson: 0, practice: 0 };
-      planned[e.mode] += plannedSecondsFor(e);
+      const { lesson, practice } = plannedSecondsFor(e);
+      planned.lesson += lesson;
+      planned.practice += practice;
       byCategoryPlanned.set(cat, planned);
     });
 

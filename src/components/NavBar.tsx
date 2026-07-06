@@ -18,6 +18,9 @@ export function NavBar({
         <nav className="flex items-center gap-5 text-sm">
           <a href="/dashboard" className="text-slate-600 hover:text-slate-900">แดชบอร์ด</a>
           {isParent !== false && (
+            <a href="/dashboard/todo" className="text-slate-600 hover:text-slate-900">To-do</a>
+          )}
+          {isParent !== false && (
             <a href="/dashboard/manage" className="text-slate-600 hover:text-slate-900">จัดการตาราง</a>
           )}
           {isParent !== false && (

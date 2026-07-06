@@ -61,7 +61,7 @@ export async function inviteParent(formData: FormData) {
       toEmail: inviteeEmail,
       childName: child.full_name,
       inviterName: profile?.full_name ?? auth.user.email ?? "ผู้ปกครอง",
-    }).catch(() => {}); // ไม่ให้ email error ทำให้ action พัง
+    }).catch((err) => console.error("[inviteParent] email error:", err));
   }
 
   revalidatePath("/dashboard/manage");
@@ -193,6 +193,19 @@ export async function addPracticeSchedule(formData: FormData) {
 export async function deletePracticeSchedule(formData: FormData) {
   const supabase = await createClient();
   await supabase.from("practice_schedules").delete().eq("id", formData.get("id") as string);
+  revalidatePath("/dashboard/manage");
+}
+
+export async function updatePracticeSchedule(formData: FormData) {
+  const supabase = await createClient();
+  const weekdays = formData.getAll("weekdays").map(Number);
+  await supabase.from("practice_schedules").update({
+    weekdays,
+    hours_per_session: Number(formData.get("hours_per_session")),
+    start_date: formData.get("start_date") as string,
+    end_date: (formData.get("end_date") as string) || null,
+    note: (formData.get("note") as string) || null,
+  }).eq("id", formData.get("id") as string);
   revalidatePath("/dashboard/manage");
 }
 
