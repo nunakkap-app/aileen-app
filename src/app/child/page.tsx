@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 import { ChildPresenceBroadcaster } from "@/components/ChildPresence";
 import { logout } from "@/app/login/actions";
@@ -17,9 +16,7 @@ export default async function ChildHomePage() {
   const childId = auth.user.user_metadata?.child_id as string;
   const username = auth.user.user_metadata?.username as string;
 
-  // Use admin client to bypass RLS — child user is verified above
-  const admin = createAdminClient();
-  const { data: enrollments } = await admin
+  const { data: enrollments } = await supabase
     .from("enrollments")
     .select(`
       id, mode,
