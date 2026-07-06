@@ -17,9 +17,10 @@ export default async function LoginPage({
           {next && <input type="hidden" name="next" value={next} />}
           <input
             name="email"
-            type="email"
-            placeholder="อีเมล"
+            type="text"
+            placeholder="อีเมล หรือ username (สำหรับเด็ก)"
             required
+            autoComplete="username"
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
           />
           <input
