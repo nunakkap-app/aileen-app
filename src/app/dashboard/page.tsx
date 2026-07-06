@@ -57,6 +57,11 @@ type LessonSchedule = {
   start_date: string;
   end_date: string | null;
 };
+type Assignment = {
+  suggested_minutes: number | null;
+  suggested_weekdays: number[] | null;
+  status: string;
+};
 type EnrollmentRow = {
   id: string;
   mode: "lesson" | "practice";
@@ -65,6 +70,7 @@ type EnrollmentRow = {
   children: { full_name: string } | { full_name: string }[] | null;
   practice_schedules: PracticeSchedule[] | null;
   lesson_schedules: LessonSchedule[] | null;
+  assignments: Assignment[] | null;
 };
 
 function getCategory(e: EnrollmentRow) {
@@ -110,7 +116,7 @@ export default async function DashboardPage({
     : { data: null };
 
   const enrollmentSelect =
-    "id, mode, child_id, subjects(category), children(full_name), practice_schedules(weekdays, hours_per_session, start_date, end_date, practice_exceptions(exception_date)), lesson_schedules(weekday, start_time, end_time, start_date, end_date)";
+    "id, mode, child_id, subjects(category), children(full_name), practice_schedules(weekdays, hours_per_session, start_date, end_date, practice_exceptions(exception_date)), lesson_schedules(weekday, start_time, end_time, start_date, end_date), assignments(suggested_minutes, suggested_weekdays, status)";
 
   const { data: parentEnrollments } = childIds.length
     ? await supabase.from("enrollments").select(enrollmentSelect).in("child_id", childIds)
@@ -137,22 +143,22 @@ export default async function DashboardPage({
   function plannedSecondsFor(e: EnrollmentRow): { lesson: number; practice: number } {
     let lesson = 0;
     let practice = 0;
-    e.practice_schedules?.forEach((s) => {
-      const excluded = new Set((s.practice_exceptions ?? []).map((x) => x.exception_date));
-      dateStrsInRange.forEach((dateStr) => {
-        const weekday = new Date(dateStr).getDay();
-        if (!s.weekdays.includes(weekday)) return;
-        if (dateStr < s.start_date || (s.end_date && dateStr > s.end_date)) return;
-        if (excluded.has(dateStr)) return;
-        practice += s.hours_per_session * 3600;
-      });
-    });
     e.lesson_schedules?.forEach((s) => {
       dateStrsInRange.forEach((dateStr) => {
         const weekday = new Date(dateStr).getDay();
         if (s.weekday !== weekday) return;
         if (dateStr < s.start_date || (s.end_date && dateStr > s.end_date)) return;
         lesson += timeToSeconds(s.end_time) - timeToSeconds(s.start_time);
+      });
+    });
+    // ซ้อม planned = assignments.suggested_minutes × suggested_weekdays ที่ตรงกับ date range
+    e.assignments?.forEach((a) => {
+      if (a.status !== "active" || !a.suggested_minutes) return;
+      const weekdays: number[] = a.suggested_weekdays?.length ? a.suggested_weekdays : [0, 1, 2, 3, 4, 5, 6];
+      dateStrsInRange.forEach((dateStr) => {
+        const weekday = new Date(dateStr).getDay();
+        if (!weekdays.includes(weekday)) return;
+        practice += a.suggested_minutes! * 60;
       });
     });
     return { lesson, practice };
@@ -189,7 +195,7 @@ export default async function DashboardPage({
       if (!e) return;
       const cat = getCategory(e);
       const entry = byCategoryActual.get(cat) ?? { lesson: 0, practice: 0 };
-      entry.practice += log.elapsed_seconds;
+      entry[e.mode] += log.elapsed_seconds;
       byCategoryActual.set(cat, entry);
 
       const childEntry = byChild.get(e.child_id) ?? { name: getChildName(e), seconds: 0 };
