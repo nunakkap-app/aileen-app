@@ -172,20 +172,27 @@ export default async function ManagePage({
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return null;
 
-  const { data: roles } = await supabase
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", auth.user.id);
+  // Round 2: roles + pendingParentInvitations in parallel
+  const [{ data: roles }, { data: pendingParentInvitations }] = await Promise.all([
+    supabase.from("user_roles").select("role").eq("user_id", auth.user.id),
+    supabase.from("parent_invitations").select("*, children(full_name)").eq("status", "pending").order("created_at", { ascending: false }),
+  ]);
 
   const isParent = roles?.some((r) => r.role === "parent");
   const isCoach = roles?.some((r) => r.role === "coach");
 
-  const { data: guardianRows } = isParent
-    ? await supabase
-        .from("child_guardians")
-        .select("is_owner, children(id, full_name, birthdate, username, child_user_id)")
-        .eq("user_id", auth.user.id)
-    : { data: null };
+  // Round 3: guardian rows + coach subject IDs + pending coach invitations in parallel
+  const [{ data: guardianRows }, { data: coachSubjectIds }, { data: pendingInvitations }] = await Promise.all([
+    isParent
+      ? supabase.from("child_guardians").select("is_owner, children(id, full_name, birthdate, username, child_user_id)").eq("user_id", auth.user.id)
+      : Promise.resolve({ data: null }),
+    isCoach
+      ? supabase.from("subjects").select("id").eq("coach_id", auth.user.id)
+      : Promise.resolve({ data: null }),
+    isCoach
+      ? supabase.from("invitations").select("*, children(full_name)").eq("status", "pending").order("created_at", { ascending: false })
+      : Promise.resolve({ data: null }),
+  ]);
 
   const children =
     guardianRows
@@ -199,16 +206,34 @@ export default async function ManagePage({
   const selectedChildId = childParam && childIds.includes(childParam) ? childParam : childIds[0];
   const selectedChild = children.find((c) => c.id === selectedChildId);
 
-  const { data: allGuardians } = childIds.length
-    ? await supabase.from("child_guardians").select("child_id, is_owner, profiles(full_name, email)").in("child_id", childIds)
-    : { data: null };
-
-  const { data: enrollments } = childIds.length
-    ? await supabase
-        .from("enrollments")
-        .select("*, subjects(name, category, placeholder_coach_name, profiles(full_name)), children(full_name), practice_schedules(*, practice_exceptions(*)), lesson_schedules(*)")
-        .in("child_id", childIds)
-    : { data: null };
+  // Round 4: all parallel — guardians, enrollments, coach enrollments, invitations
+  const [
+    { data: allGuardians },
+    { data: enrollments },
+    { data: coachEnrollments },
+    { data: sentInvitations },
+    { data: sentParentInvitations },
+    { data: coachAssignments },
+  ] = await Promise.all([
+    childIds.length
+      ? supabase.from("child_guardians").select("child_id, is_owner, profiles(full_name, email)").in("child_id", childIds)
+      : Promise.resolve({ data: null }),
+    childIds.length
+      ? supabase.from("enrollments").select("*, subjects(name, category, placeholder_coach_name, profiles(full_name)), children(full_name), practice_schedules(*, practice_exceptions(*)), lesson_schedules(*)").in("child_id", childIds)
+      : Promise.resolve({ data: null }),
+    coachSubjectIds?.length
+      ? supabase.from("enrollments").select("*, subjects(name, category), children(full_name), practice_schedules(*, practice_exceptions(*)), lesson_schedules(*)").in("subject_id", coachSubjectIds.map((s) => s.id))
+      : Promise.resolve({ data: null }),
+    selectedChildId
+      ? supabase.from("invitations").select("*, children(full_name)").eq("child_id", selectedChildId).order("created_at", { ascending: false })
+      : Promise.resolve({ data: null }),
+    selectedChildId
+      ? supabase.from("parent_invitations").select("*").eq("child_id", selectedChildId).order("created_at", { ascending: false })
+      : Promise.resolve({ data: null }),
+    isCoach
+      ? supabase.from("assignments").select("*, submissions(*), enrollments(children(full_name), subjects(name))").eq("coach_id", auth.user.id).order("due_date", { ascending: true })
+      : Promise.resolve({ data: null }),
+  ]);
 
   const enrollmentsByChild = new Map<string, typeof enrollments>();
   enrollments?.forEach((e) => {
@@ -217,53 +242,35 @@ export default async function ManagePage({
     enrollmentsByChild.set(e.child_id, list);
   });
 
-  const { data: coachSubjectIds } = isCoach
-    ? await supabase.from("subjects").select("id").eq("coach_id", auth.user.id)
-    : { data: null };
-
-  const { data: coachEnrollments } = coachSubjectIds?.length
-    ? await supabase
-        .from("enrollments")
-        .select("*, subjects(name, category), children(full_name), practice_schedules(*, practice_exceptions(*)), lesson_schedules(*)")
-        .in("subject_id", coachSubjectIds.map((s) => s.id))
-    : { data: null };
-
   // "นักเรียนของฉัน" only needs to list students who aren't already shown under
   // "ลูกของฉัน" — a self-teaching parent manages their own kids there directly.
   const externalCoachEnrollments = coachEnrollments?.filter((e) => !childIds.includes(e.child_id)) ?? null;
 
-  const { data: sentInvitations } = selectedChildId
-    ? await supabase.from("invitations").select("*, children(full_name)").eq("child_id", selectedChildId).order("created_at", { ascending: false })
-    : { data: null };
-
-  const { data: pendingInvitations } = isCoach
-    ? await supabase
-        .from("invitations")
-        .select("*, children(full_name)")
-        .eq("status", "pending")
-        .order("created_at", { ascending: false })
-    : { data: null };
-
-  const { data: sentParentInvitations } = selectedChildId
-    ? await supabase.from("parent_invitations").select("*").eq("child_id", selectedChildId).order("created_at", { ascending: false })
-    : { data: null };
-
-  const { data: pendingParentInvitations } = await supabase
-    .from("parent_invitations")
-    .select("*, children(full_name)")
-    .eq("status", "pending")
-    .order("created_at", { ascending: false });
-
   const selectedEnrollments = selectedChildId ? enrollmentsByChild.get(selectedChildId) ?? [] : [];
   const selectedEnrollmentIds = selectedEnrollments.map((e) => e.id);
 
-  const { data: parentAssignments } = selectedEnrollmentIds.length
-    ? await supabase
-        .from("assignments")
-        .select("*, submissions(*), enrollments(children(full_name), subjects(name))")
-        .in("enrollment_id", selectedEnrollmentIds)
-        .order("due_date", { ascending: true })
-    : { data: null };
+  const allTrackedEnrollmentIds = [
+    ...(enrollments?.map((e) => e.id) ?? []),
+    ...(externalCoachEnrollments?.map((e) => e.id) ?? []),
+  ];
+
+  const allLessonScheduleIds = [
+    ...(enrollments ?? []).flatMap((e) => (e.lesson_schedules ?? []).map((s: { id: string }) => s.id)),
+    ...(externalCoachEnrollments ?? []).flatMap((e) => (e.lesson_schedules ?? []).map((s: { id: string }) => s.id)),
+  ];
+
+  // Round 5: assignments, overrides, exceptions in parallel
+  const [{ data: parentAssignments }, { data: rawOverrides }, { data: rawLessonExceptions }] = await Promise.all([
+    selectedEnrollmentIds.length
+      ? supabase.from("assignments").select("*, submissions(*), enrollments(children(full_name), subjects(name))").in("enrollment_id", selectedEnrollmentIds).order("due_date", { ascending: true })
+      : Promise.resolve({ data: null }),
+    allTrackedEnrollmentIds.length
+      ? supabase.from("session_overrides").select("enrollment_id, original_date, new_date, override_start_time, override_end_time, override_hours").in("enrollment_id", allTrackedEnrollmentIds)
+      : Promise.resolve({ data: null }),
+    allLessonScheduleIds.length
+      ? supabase.from("lesson_exceptions").select("lesson_schedule_id, exception_date").in("lesson_schedule_id", allLessonScheduleIds)
+      : Promise.resolve({ data: null }),
+  ]);
 
   const assignmentsByEnrollment = new Map<string, NonNullable<typeof parentAssignments>>();
   parentAssignments?.forEach((a) => {
@@ -272,32 +279,12 @@ export default async function ManagePage({
     assignmentsByEnrollment.set(a.enrollment_id, list);
   });
 
-  const { data: coachAssignments } = isCoach
-    ? await supabase
-        .from("assignments")
-        .select("*, submissions(*), enrollments(children(full_name), subjects(name))")
-        .eq("coach_id", auth.user.id)
-        .order("due_date", { ascending: true })
-    : { data: null };
-
   const coachAssignmentsByEnrollment = new Map<string, NonNullable<typeof coachAssignments>>();
   coachAssignments?.forEach((a) => {
     const list = coachAssignmentsByEnrollment.get(a.enrollment_id) ?? [];
     list.push(a);
     coachAssignmentsByEnrollment.set(a.enrollment_id, list);
   });
-
-  const allTrackedEnrollmentIds = [
-    ...(enrollments?.map((e) => e.id) ?? []),
-    ...(externalCoachEnrollments?.map((e) => e.id) ?? []),
-  ];
-
-  const { data: rawOverrides } = allTrackedEnrollmentIds.length
-    ? await supabase
-        .from("session_overrides")
-        .select("enrollment_id, original_date, new_date, override_start_time, override_end_time, override_hours")
-        .in("enrollment_id", allTrackedEnrollmentIds)
-    : { data: null };
 
   const sessionOverrides: SessionOverride[] =
     rawOverrides?.map((o) => ({
@@ -309,17 +296,6 @@ export default async function ManagePage({
       overrideHours: o.override_hours,
     })) ?? [];
 
-  // Fetch lesson_exceptions separately to avoid nested join issue
-  const allLessonScheduleIds = [
-    ...(enrollments ?? []).flatMap((e) => (e.lesson_schedules ?? []).map((s: { id: string }) => s.id)),
-    ...(externalCoachEnrollments ?? []).flatMap((e) => (e.lesson_schedules ?? []).map((s: { id: string }) => s.id)),
-  ];
-  const { data: rawLessonExceptions } = allLessonScheduleIds.length
-    ? await supabase
-        .from("lesson_exceptions")
-        .select("lesson_schedule_id, exception_date")
-        .in("lesson_schedule_id", allLessonScheduleIds)
-    : { data: null };
   const lessonExcludedSet = new Set(
     (rawLessonExceptions ?? []).map((x) => `${x.lesson_schedule_id}|${x.exception_date}`),
   );
