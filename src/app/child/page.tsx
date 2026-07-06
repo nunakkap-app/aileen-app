@@ -45,8 +45,7 @@ export default async function ChildHomePage() {
       </header>
 
       <main className="flex flex-col gap-6 px-6 pb-10">
-        <p className="text-xs text-slate-300 break-all">debug: childId={childId} enrollments={enrollments?.length ?? 0}</p>
-        {!enrollments?.length ? (
+{!enrollments?.length ? (
           <p className="text-sm text-slate-400">ยังไม่มีกิจกรรม</p>
         ) : (
           enrollments.map((e) => {
