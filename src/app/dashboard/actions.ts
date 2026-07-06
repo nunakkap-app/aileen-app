@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 
 export async function addChild(formData: FormData) {
   const supabase = await createClient();
@@ -154,8 +155,30 @@ export async function deletePracticeSchedule(formData: FormData) {
   revalidatePath("/dashboard/manage");
 }
 
+function parseLessonPricing(formData: FormData) {
+  const pricingType = (formData.get("pricing_type") as string) || "per_session";
+  if (pricingType === "course") {
+    const totalPrice = Number(formData.get("total_price") || 0);
+    const totalSessions = Number(formData.get("total_sessions") || 1);
+    return {
+      pricing_type: "course",
+      total_price: totalPrice,
+      total_sessions: totalSessions,
+      price_per_session: totalSessions > 0 ? Math.ceil(totalPrice / totalSessions) : null,
+    };
+  }
+  const raw = formData.get("price_per_session") as string;
+  return {
+    pricing_type: "per_session",
+    price_per_session: raw ? Number(raw) : null,
+    total_price: null,
+    total_sessions: null,
+  };
+}
+
 export async function addLessonSchedule(formData: FormData) {
   const supabase = await createClient();
+  const pricing = parseLessonPricing(formData);
 
   await supabase.from("lesson_schedules").insert({
     enrollment_id: formData.get("enrollment_id") as string,
@@ -165,8 +188,100 @@ export async function addLessonSchedule(formData: FormData) {
     start_date: formData.get("start_date") as string,
     end_date: (formData.get("end_date") as string) || null,
     note: (formData.get("note") as string) || null,
+    ...pricing,
   });
 
+  revalidatePath("/dashboard/manage");
+}
+
+export async function updateLessonSchedule(formData: FormData) {
+  const supabase = await createClient();
+  const pricing = parseLessonPricing(formData);
+
+  await supabase.from("lesson_schedules").update({
+    weekday: Number(formData.get("weekday")),
+    start_time: formData.get("start_time") as string,
+    end_time: formData.get("end_time") as string,
+    start_date: formData.get("start_date") as string,
+    end_date: (formData.get("end_date") as string) || null,
+    note: (formData.get("note") as string) || null,
+    ...pricing,
+  }).eq("id", formData.get("id") as string);
+
+  revalidatePath("/dashboard/manage");
+}
+
+export async function addEnrollmentPackage(formData: FormData) {
+  const supabase = await createClient();
+
+  const pricingType = formData.get("pricing_type") as "per_session" | "course";
+  const minutesPerSession = formData.get("minutes_per_session") ? Number(formData.get("minutes_per_session")) : null;
+
+  if (pricingType === "per_session") {
+    await supabase.from("enrollment_packages").insert({
+      enrollment_id: formData.get("enrollment_id") as string,
+      pricing_type: "per_session",
+      price_per_session: Number(formData.get("price_per_session")),
+      minutes_per_session: minutesPerSession,
+      total_price: null,
+      total_sessions: null,
+      start_date: (formData.get("start_date") as string) || new Date().toISOString().slice(0, 10),
+      note: (formData.get("note") as string) || null,
+    });
+  } else {
+    const totalPrice = Number(formData.get("total_price"));
+    const totalSessions = Number(formData.get("total_sessions"));
+    const pricePerSession = totalSessions > 0 ? Math.ceil(totalPrice / totalSessions) : null;
+    await supabase.from("enrollment_packages").insert({
+      enrollment_id: formData.get("enrollment_id") as string,
+      pricing_type: "course",
+      total_price: totalPrice,
+      total_sessions: totalSessions,
+      price_per_session: pricePerSession,
+      minutes_per_session: minutesPerSession,
+      start_date: (formData.get("start_date") as string) || new Date().toISOString().slice(0, 10),
+      note: (formData.get("note") as string) || null,
+    });
+  }
+
+  revalidatePath("/dashboard/manage");
+}
+
+export async function updateEnrollmentPackage(formData: FormData) {
+  const supabase = await createClient();
+  const id = formData.get("id") as string;
+  const pricingType = formData.get("pricing_type") as "per_session" | "course";
+  const minutesPerSession = formData.get("minutes_per_session") ? Number(formData.get("minutes_per_session")) : null;
+
+  if (pricingType === "per_session") {
+    await supabase.from("enrollment_packages").update({
+      pricing_type: "per_session",
+      price_per_session: Number(formData.get("price_per_session")),
+      minutes_per_session: minutesPerSession,
+      total_price: null,
+      total_sessions: null,
+      note: (formData.get("note") as string) || null,
+    }).eq("id", id);
+  } else {
+    const totalPrice = Number(formData.get("total_price"));
+    const totalSessions = Number(formData.get("total_sessions"));
+    const pricePerSession = totalSessions > 0 ? Math.ceil(totalPrice / totalSessions) : null;
+    await supabase.from("enrollment_packages").update({
+      pricing_type: "course",
+      total_price: totalPrice,
+      total_sessions: totalSessions,
+      price_per_session: pricePerSession,
+      minutes_per_session: minutesPerSession,
+      note: (formData.get("note") as string) || null,
+    }).eq("id", id);
+  }
+
+  revalidatePath("/dashboard/manage");
+}
+
+export async function deleteEnrollmentPackage(formData: FormData) {
+  const supabase = await createClient();
+  await supabase.from("enrollment_packages").delete().eq("id", formData.get("id") as string);
   revalidatePath("/dashboard/manage");
 }
 
@@ -201,6 +316,8 @@ export async function createAssignment(formData: FormData) {
       due_date: (formData.get("due_date") as string) || null,
       suggested_weekdays: suggestedWeekdays.length ? suggestedWeekdays : null,
       suggested_minutes: formData.get("suggested_minutes") ? Number(formData.get("suggested_minutes")) : null,
+      reference_url: (formData.get("reference_url") as string) || null,
+      reference_text: (formData.get("reference_text") as string) || null,
     })
     .select("id")
     .single();
@@ -275,6 +392,43 @@ export async function selfCoach(formData: FormData) {
   }
 
   revalidatePath("/dashboard/manage");
+}
+
+export async function generateCoachInviteLink(
+  _prev: string | null,
+  formData: FormData
+): Promise<string | null> {
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth.user) return null;
+
+  const enrollmentId = formData.get("enrollment_id") as string;
+
+  // Reuse an existing unclaimed token for this enrollment
+  const { data: existing } = await supabase
+    .from("coach_claim_tokens")
+    .select("id")
+    .eq("enrollment_id", enrollmentId)
+    .is("claimed_at", null)
+    .maybeSingle();
+
+  let tokenId = existing?.id;
+
+  if (!tokenId) {
+    const { data: created } = await supabase
+      .from("coach_claim_tokens")
+      .insert({ enrollment_id: enrollmentId, created_by: auth.user.id })
+      .select("id")
+      .single();
+    tokenId = created?.id;
+  }
+
+  if (!tokenId) return null;
+
+  const h = await headers();
+  const host = h.get("host") ?? "localhost:3000";
+  const proto = host.startsWith("localhost") ? "http" : "https";
+  return `${proto}://${host}/join/coach/${tokenId}`;
 }
 
 export async function respondInvitation(formData: FormData) {

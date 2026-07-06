@@ -114,12 +114,23 @@ export default async function DashboardPage({
     ? await supabase.from("enrollments").select(enrollmentSelect).in("child_id", childIds)
     : { data: null };
 
+  // Cost data — fetch pricing fields from lesson_schedules
+  const { data: costEnrollments } = childIds.length
+    ? await supabase
+        .from("enrollments")
+        .select("id, child_id, subjects(name, category), children(full_name), lesson_schedules(weekday, start_date, end_date, pricing_type, price_per_session, total_price, total_sessions)")
+        .in("child_id", childIds)
+        .eq("mode", "lesson")
+    : { data: null };
+
   const { data: coachEnrollments } = coachSubjectIds?.length
     ? await supabase
         .from("enrollments")
         .select(enrollmentSelect)
         .in("subject_id", coachSubjectIds.map((s) => s.id))
     : { data: null };
+
+  const hasExternalStudents = coachEnrollments?.some((e) => !childIds.includes(e.child_id)) ?? false;
 
   function plannedSecondsFor(e: EnrollmentRow) {
     let seconds = 0;
@@ -191,6 +202,95 @@ export default async function DashboardPage({
   const parentSummary = isParent ? await summarize(filteredParentEnrollments) : null;
   const coachSummary = isCoach ? await summarize(coachEnrollments as EnrollmentRow[] | null) : null;
 
+  // คำนวณค่าใช้จ่าย
+  function countSessions(
+    weekday: number,
+    schedStart: string,
+    schedEnd: string | null,
+    rangeStart: string,
+    rangeEnd: string,
+  ): number {
+    const from = schedStart > rangeStart ? schedStart : rangeStart;
+    const to = schedEnd && schedEnd < rangeEnd ? schedEnd : rangeEnd;
+    if (from > to) return 0;
+    let count = 0;
+    const cur = new Date(from + "T00:00:00");
+    const end = new Date(to + "T00:00:00");
+    while (cur <= end) {
+      if (cur.getDay() === weekday) count++;
+      cur.setDate(cur.getDate() + 1);
+    }
+    return count;
+  }
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  type CostSchedule = {
+    weekday: number;
+    start_date: string;
+    end_date: string | null;
+    pricing_type: string | null;
+    price_per_session: number | null;
+    total_price: number | null;
+    total_sessions: number | null;
+  };
+  type CostEnrollmentRow = {
+    id: string;
+    child_id: string;
+    subjects: { name: string; category: string } | { name: string; category: string }[] | null;
+    children: { full_name: string } | { full_name: string }[] | null;
+    lesson_schedules: CostSchedule[] | null;
+  };
+  type EnrollmentCostSummary = {
+    subjectName: string;
+    childName: string;
+    category: string;
+    pricingType: "per_session" | "course";
+    pricePerSession: number;
+    totalPrice: number | null;
+    totalSessions: number | null;
+    sessionsDoneAllTime: number;
+    sessionsDonePeriod: number;
+    costThisPeriod: number;
+    costAllTime: number;
+  };
+
+  const filteredCostEnrollments = selectedChildId
+    ? (costEnrollments as CostEnrollmentRow[] | null)?.filter((e) => e.child_id === selectedChildId)
+    : (costEnrollments as CostEnrollmentRow[] | null);
+
+  const costRows: EnrollmentCostSummary[] = [];
+  filteredCostEnrollments?.forEach((e) => {
+    const subject = Array.isArray(e.subjects) ? e.subjects[0] : e.subjects;
+    const child = Array.isArray(e.children) ? e.children[0] : e.children;
+    (e.lesson_schedules ?? []).forEach((s) => {
+      const pricingType = s.pricing_type === "course" ? "course" : "per_session";
+      const pricePerSession = s.price_per_session ?? 0;
+      if (pricePerSession <= 0) return;
+      const sessionsPeriod = countSessions(s.weekday, s.start_date, s.end_date, startStr, endStr);
+      const sessionsAllTime = countSessions(s.weekday, s.start_date, s.end_date, s.start_date, todayStr);
+      const effectiveDone = pricingType === "course" && s.total_sessions
+        ? Math.min(sessionsAllTime, s.total_sessions)
+        : sessionsAllTime;
+      costRows.push({
+        subjectName: subject?.name ?? "",
+        childName: child?.full_name ?? "",
+        category: subject?.category ?? "academic",
+        pricingType,
+        pricePerSession,
+        totalPrice: s.total_price,
+        totalSessions: s.total_sessions,
+        sessionsDoneAllTime: effectiveDone,
+        sessionsDonePeriod: sessionsPeriod,
+        costThisPeriod: sessionsPeriod * pricePerSession,
+        costAllTime: effectiveDone * pricePerSession,
+      });
+    });
+  });
+
+  const totalCostPeriod = costRows.reduce((sum, r) => sum + r.costThisPeriod, 0);
+  const totalCostAllTime = costRows.reduce((sum, r) => sum + r.costAllTime, 0);
+
   const rangeLabel =
     range === "week"
       ? `สัปดาห์นี้ (${start.toLocaleDateString("th-TH", { day: "numeric", month: "short" })} - ${end.toLocaleDateString("th-TH", { day: "numeric", month: "short" })})`
@@ -234,7 +334,7 @@ export default async function DashboardPage({
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <NavBar email={auth.user.email ?? ""} />
+      <NavBar email={auth.user.email ?? ""} isCoach={hasExternalStudents} isParent={isParent} />
       <main className="mx-auto max-w-3xl px-6 py-10">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-xl font-semibold text-slate-900">แดชบอร์ด</h1>
@@ -308,6 +408,99 @@ export default async function DashboardPage({
             {!coachSummary!.byChild.size && (
               <p className="mt-4 text-sm text-slate-400">ยังไม่มีการบันทึกเวลาในช่วงนี้</p>
             )}
+          </section>
+        )}
+
+        {/* Cost report — parent only */}
+        {isParent && costRows.length > 0 && (
+          <section className="mb-10">
+            <h2 className="mb-3 text-sm font-semibold text-slate-500">ค่าใช้จ่าย</h2>
+
+            {/* Summary totals */}
+            <div className="mb-4 grid grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+                <p className="mb-1 text-xs font-medium text-amber-600">{rangeLabel}</p>
+                <p className="text-2xl font-semibold text-amber-800">
+                  ฿{totalCostPeriod.toLocaleString()}
+                </p>
+                <p className="mt-0.5 text-xs text-amber-500">
+                  {costRows.reduce((s, r) => s + r.sessionsDonePeriod, 0)} ครั้ง
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <p className="mb-1 text-xs font-medium text-slate-500">สะสมทั้งหมด</p>
+                <p className="text-2xl font-semibold text-slate-800">
+                  ฿{totalCostAllTime.toLocaleString()}
+                </p>
+                <p className="mt-0.5 text-xs text-slate-400">
+                  {costRows.reduce((s, r) => s + r.sessionsDoneAllTime, 0)} ครั้ง
+                </p>
+              </div>
+            </div>
+
+            {/* Per-enrollment breakdown */}
+            <div className="flex flex-col gap-2">
+              {costRows.map((r, i) => {
+                const colors = categoryColor[r.category] ?? categoryColor.academic;
+                return (
+                  <div key={i} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className={`text-sm font-semibold ${colors.text}`}>{r.subjectName}</p>
+                        {children && children.length > 1 && (
+                          <p className="text-xs text-slate-400">{r.childName}</p>
+                        )}
+                      </div>
+                      {r.pricingType === "course" ? (
+                        <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">Course</span>
+                      ) : (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">รายครั้ง</span>
+                      )}
+                    </div>
+
+                    {r.pricingType === "course" && r.totalSessions ? (
+                      <div className="mt-3">
+                        <div className="mb-1 flex items-center justify-between text-xs text-slate-600">
+                          <span className="font-medium">{r.sessionsDoneAllTime}/{r.totalSessions} ครั้ง</span>
+                          <span className="text-slate-400">฿{r.pricePerSession.toLocaleString()}/ครั้ง</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className="h-full rounded-full bg-indigo-400 transition-all"
+                            style={{ width: `${Math.min(100, Math.round((r.sessionsDoneAllTime / r.totalSessions) * 100))}%` }}
+                          />
+                        </div>
+                        <div className="mt-1.5 flex items-center justify-between text-xs">
+                          <span className="text-slate-400">เหลือ {r.totalSessions - r.sessionsDoneAllTime} ครั้ง</span>
+                          {r.totalPrice && (
+                            <span className="font-medium text-indigo-700">฿{r.totalPrice.toLocaleString()} รวมทั้ง course</span>
+                          )}
+                        </div>
+                        {r.sessionsDonePeriod > 0 && (
+                          <p className="mt-2 text-xs text-slate-500">
+                            {rangeLabel}: {r.sessionsDonePeriod} ครั้ง · ฿{r.costThisPeriod.toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="mt-2">
+                        <p className="text-sm font-semibold text-amber-700">฿{r.pricePerSession.toLocaleString()}/ครั้ง</p>
+                        <div className="mt-1 flex flex-wrap gap-x-4 text-xs text-slate-500">
+                          <span>
+                            {rangeLabel}:{" "}
+                            <strong className="text-slate-700">{r.sessionsDonePeriod} ครั้ง · ฿{r.costThisPeriod.toLocaleString()}</strong>
+                          </span>
+                          <span>
+                            รวม:{" "}
+                            <strong className="text-slate-700">{r.sessionsDoneAllTime} ครั้ง · ฿{r.costAllTime.toLocaleString()}</strong>
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </section>
         )}
 

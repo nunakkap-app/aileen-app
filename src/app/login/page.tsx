@@ -3,9 +3,9 @@ import { login } from "./actions";
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; next?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error, next } = await searchParams;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
@@ -14,6 +14,7 @@ export default async function LoginPage({
         <p className="mb-6 text-sm text-slate-500">เข้าสู่ระบบ</p>
         {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
         <form action={login} className="flex flex-col gap-3">
+          {next && <input type="hidden" name="next" value={next} />}
           <input
             name="email"
             type="email"

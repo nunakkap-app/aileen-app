@@ -8,6 +8,7 @@ export async function signup(formData: FormData) {
   const password = formData.get("password") as string;
   const fullName = formData.get("full_name") as string;
   const role = formData.get("role") as "parent" | "coach";
+  const next = (formData.get("next") as string) || "/dashboard";
 
   const supabase = await createClient();
 
@@ -18,10 +19,12 @@ export async function signup(formData: FormData) {
   });
 
   if (error || !data.user) {
-    redirect(`/signup?error=${encodeURIComponent(error?.message ?? "signup failed")}`);
+    const nextParam = next !== "/dashboard" ? `&next=${encodeURIComponent(next)}` : "";
+    const roleParam = role !== "parent" ? `&role=${role}` : "";
+    redirect(`/signup?error=${encodeURIComponent(error?.message ?? "signup failed")}${nextParam}${roleParam}`);
   }
 
   await supabase.from("user_roles").insert({ user_id: data.user.id, role });
 
-  redirect("/dashboard");
+  redirect(next);
 }
