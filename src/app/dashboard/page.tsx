@@ -189,7 +189,7 @@ export default async function DashboardPage({
       if (!e) return;
       const cat = getCategory(e);
       const entry = byCategoryActual.get(cat) ?? { lesson: 0, practice: 0 };
-      entry[e.mode] += log.elapsed_seconds;
+      entry.practice += log.elapsed_seconds;
       byCategoryActual.set(cat, entry);
 
       const childEntry = byChild.get(e.child_id) ?? { name: getChildName(e), seconds: 0 };
