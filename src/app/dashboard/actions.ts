@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
+import { sendParentInviteEmail, sendCoachInviteEmail } from "@/lib/email";
 
 export async function addChild(formData: FormData) {
   const supabase = await createClient();
@@ -51,6 +52,17 @@ export async function inviteParent(formData: FormData) {
     invited_by: auth.user.id,
     invitee_email: inviteeEmail,
   });
+
+  // Send email notification
+  const { data: child } = await supabase.from("children").select("full_name").eq("id", childId).maybeSingle();
+  const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", auth.user.id).maybeSingle();
+  if (child?.full_name) {
+    await sendParentInviteEmail({
+      toEmail: inviteeEmail,
+      childName: child.full_name,
+      inviterName: profile?.full_name ?? auth.user.email ?? "ผู้ปกครอง",
+    }).catch(() => {}); // ไม่ให้ email error ทำให้ action พัง
+  }
 
   revalidatePath("/dashboard/manage");
 }
@@ -134,15 +146,29 @@ export async function inviteCoach(formData: FormData) {
     return;
   }
 
-  await supabase.from("invitations").insert({
+  const coachEmail = formData.get("coach_email") as string;
+  const { data: inv } = await supabase.from("invitations").insert({
     parent_id: auth.user.id,
     child_id: childId,
-    coach_email: formData.get("coach_email") as string,
+    coach_email: coachEmail,
     category,
     subject_name: subjectName,
     note: (formData.get("note") as string) || null,
     mode,
-  });
+  }).select("id").single();
+
+  // Send email with invite link
+  if (inv?.id) {
+    const { data: child } = await supabase.from("children").select("full_name").eq("id", childId).maybeSingle();
+    const h = await headers();
+    const origin = h.get("origin") ?? "https://aileen28.vercel.app";
+    await sendCoachInviteEmail({
+      toEmail: coachEmail,
+      childName: child?.full_name ?? "",
+      subjectName,
+      inviteLink: `${origin}/join/coach/${inv.id}`,
+    }).catch(() => {});
+  }
 
   revalidatePath("/dashboard/manage");
 }
