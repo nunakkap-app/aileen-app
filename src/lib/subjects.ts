@@ -24,6 +24,7 @@ export const subjectOptions: Record<string, string[]> = {
     "อูคูเลเล่",
     "ดนตรีไทย",
     "ทฤษฎีดนตรี",
+    "วงดนตรี / Band",
   ],
   academic: [
     "คณิตศาสตร์",
