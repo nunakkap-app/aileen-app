@@ -2,9 +2,8 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { ChildPresenceBroadcaster } from "@/components/ChildPresence";
 import { logout } from "@/app/login/actions";
-
-const DOW_TH: Record<number, string> = { 0: "อา", 1: "จ", 2: "อ", 3: "พ", 4: "พฤ", 5: "ศ", 6: "ส" };
-const MONTH_TH = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+import { getLocale, getDictionary } from "@/lib/locale";
+import { LanguageToggle } from "@/components/LanguageToggle";
 
 function getBangkokDate() {
   return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
@@ -92,6 +91,9 @@ export default async function ChildHomePage({
 }: {
   searchParams: Promise<{ view?: string }>;
 }) {
+  const locale = await getLocale();
+  const d = await getDictionary(locale);
+
   const { view: rawView } = await searchParams;
   const view = rawView === "week" || rawView === "month" ? rawView : "today";
 
@@ -146,10 +148,13 @@ export default async function ChildHomePage({
     : allAssignments;
 
   const tabs = [
-    { key: "today", label: "วันนี้" },
-    { key: "week", label: "สัปดาห์" },
-    { key: "month", label: "เดือน" },
+    { key: "today", label: d.common.today },
+    { key: "week", label: d.common.week },
+    { key: "month", label: d.common.month },
   ];
+
+  const DOW = (d.weekdays?.short as string[]) ?? ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
+  const MONTHS = (d.months as string[]) ?? ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-white">
@@ -157,14 +162,17 @@ export default async function ChildHomePage({
 
       <header className="flex items-center justify-between px-5 py-4">
         <div>
-          <h1 className="text-base font-bold text-slate-900">สวัสดี 👋</h1>
+          <h1 className="text-base font-bold text-slate-900">{d.child.hello} 👋</h1>
           <p className="text-xs text-slate-500">@{username}</p>
         </div>
-        <form action={logout}>
-          <button type="submit" className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50">
-            ออกจากระบบ
-          </button>
-        </form>
+        <div className="flex items-center gap-2">
+          <LanguageToggle locale={locale} />
+          <form action={logout}>
+            <button type="submit" className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50">
+              {d.nav.signout}
+            </button>
+          </form>
+        </div>
       </header>
 
       <div className="flex gap-1 px-5 pb-4">
@@ -180,17 +188,23 @@ export default async function ChildHomePage({
         {/* Schedule */}
         <section>
           <h2 className="mb-2 text-sm font-semibold text-slate-700">
-            {view === "today" ? `ตารางวันนี้ — ${DOW_TH[todayDow]} ${today.getDate()} ${MONTH_TH[today.getMonth()]}` : view === "week" ? "ตารางสัปดาห์นี้" : `ตารางเดือน ${MONTH_TH[today.getMonth()]} ${today.getFullYear() + 543}`}
+            {view === "today"
+              ? `${d.child.todaySchedule} — ${DOW[todayDow]} ${today.getDate()} ${MONTHS[today.getMonth()]}`
+              : view === "week"
+                ? d.child.weekSchedule
+                : `${d.child.monthSchedule} ${MONTHS[today.getMonth()]}${locale === "th" ? ` ${today.getFullYear() + 543}` : ` ${today.getFullYear()}`}`}
           </h2>
           {schedule.length === 0 ? (
-            <p className="text-sm text-slate-400">ไม่มีตาราง{view === "today" ? "วันนี้" : view === "week" ? "สัปดาห์นี้" : "เดือนนี้"}</p>
+            <p className="text-sm text-slate-400">
+              {view === "today" ? d.child.noScheduleToday : view === "week" ? d.child.noScheduleWeek : d.child.noScheduleMonth}
+            </p>
           ) : (
             <div className="flex flex-col gap-2">
               {schedule.map(({ date, sessions }) => (
                 <div key={dateStr(date)} className="rounded-xl border border-slate-200 bg-white p-3">
                   {view !== "today" && (
                     <p className={`mb-1.5 text-xs font-semibold ${dateStr(date) === dateStr(today) ? "text-indigo-600" : "text-slate-500"}`}>
-                      {DOW_TH[date.getDay()]} {date.getDate()} {MONTH_TH[date.getMonth()]}{dateStr(date) === dateStr(today) ? " (วันนี้)" : ""}
+                      {DOW[date.getDay()]} {date.getDate()} {MONTHS[date.getMonth()]}{dateStr(date) === dateStr(today) ? ` (${d.common.today})` : ""}
                     </p>
                   )}
                   <div className="flex flex-col gap-1">
@@ -199,7 +213,7 @@ export default async function ChildHomePage({
                         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-400" />
                         <span className="font-medium">{s.label}</span>
                         {s.time && <span className="text-slate-500">{s.time}</span>}
-                        {s.hours && !s.time && <span className="text-slate-500">{s.hours} ชม.</span>}
+                        {s.hours && !s.time && <span className="text-slate-500">{s.hours} {d.manage?.hoursUnit ?? "ชม."}</span>}
                       </div>
                     ))}
                   </div>
@@ -212,10 +226,10 @@ export default async function ChildHomePage({
         {/* Homework */}
         <section>
           <h2 className="mb-2 text-sm font-semibold text-slate-700">
-            {view === "today" ? "การบ้านวันนี้" : "การบ้านทั้งหมด"}
+            {view === "today" ? d.child.homeworkToday : d.child.homeworkAll}
           </h2>
           {homework.length === 0 ? (
-            <p className="text-sm text-slate-400">ไม่มีการบ้าน{view === "today" ? "วันนี้" : ""}</p>
+            <p className="text-sm text-slate-400">{view === "today" ? d.child.noHomeworkToday : d.child.noHomework}</p>
           ) : (
             <div className="flex flex-col gap-2">
               {homework.map((a) => {
@@ -230,11 +244,11 @@ export default async function ChildHomePage({
                         <p className="text-xs text-slate-400">{a.subjectName}</p>
                       </div>
                       {submitted
-                        ? <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">ส่งแล้ว ✓</span>
+                        ? <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">{d.child.submitted}</span>
                         : <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-400" />}
                     </div>
                     {a.description && <p className="mt-1 text-xs text-slate-500 line-clamp-2">{a.description}</p>}
-                    {a.suggested_minutes && <p className="mt-1 text-xs text-slate-400">⏱ {a.suggested_minutes} นาที</p>}
+                    {a.suggested_minutes && <p className="mt-1 text-xs text-slate-400">⏱ {a.suggested_minutes} {d.timer?.minutes ?? "นาที"}</p>}
                   </a>
                 );
               })}

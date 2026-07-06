@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { NavBar } from "@/components/NavBar";
 import { categoryColor, categoryLabel } from "@/lib/subjects";
 import { saveSessionLog, saveGoal } from "./actions";
+import { getLocale, getDictionary } from "@/lib/locale";
 
 function one<T>(v: T | T[] | null | undefined): T | null {
   if (Array.isArray(v)) return v[0] ?? null;
@@ -19,6 +20,8 @@ const today = new Date().toISOString().slice(0, 10);
 const monthStart = today.slice(0, 7) + "-01";
 
 export default async function CoachDashboardPage() {
+  const locale = await getLocale();
+  const d = await getDictionary(locale);
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) redirect("/login");
@@ -71,19 +74,19 @@ export default async function CoachDashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <NavBar email={auth.user.email ?? ""} />
+      <NavBar email={auth.user.email ?? ""} locale={locale} d={d} />
       <main className="mx-auto max-w-2xl px-6 py-10">
         <div className="mb-8 flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-slate-900">ลูกศิษย์ของฉัน</h1>
+          <h1 className="text-xl font-semibold text-slate-900">{d.coach.title}</h1>
           <a href="/dashboard" className="text-sm text-slate-500 hover:text-indigo-600 hover:underline">
-            ‹ หน้าหลัก
+            {d.common.back}
           </a>
         </div>
 
         {!enrollments?.length && (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
-            <p className="text-slate-400">ยังไม่มีลูกศิษย์ในระบบ</p>
-            <p className="mt-1 text-xs text-slate-400">ผู้ปกครองต้องส่ง invite link มาให้ก่อน</p>
+            <p className="text-slate-400">{d.coach.noStudents}</p>
+            <p className="mt-1 text-xs text-slate-400">{locale === "th" ? "ผู้ปกครองต้องส่ง invite link มาให้ก่อน" : "A parent needs to send you an invite link first"}</p>
           </div>
         )}
 
@@ -117,7 +120,7 @@ export default async function CoachDashboardPage() {
                   </div>
                   <div className="text-right text-sm">
                     <p className="font-semibold text-slate-900">{formatHours(hoursSeconds)}</p>
-                    <p className="text-xs text-slate-400">เดือนนี้</p>
+                    <p className="text-xs text-slate-400">{d.dashboard.thisMonth}</p>
                   </div>
                 </div>
 
@@ -125,15 +128,15 @@ export default async function CoachDashboardPage() {
                 <div className="grid grid-cols-3 divide-x divide-slate-100 border-b border-slate-100">
                   <div className="px-4 py-3 text-center">
                     <p className="text-xl font-semibold text-slate-900">{totalAssignments}</p>
-                    <p className="text-xs text-slate-400">การบ้านทั้งหมด</p>
+                    <p className="text-xs text-slate-400">{locale === "th" ? "การบ้านทั้งหมด" : "Total homework"}</p>
                   </div>
                   <div className="px-4 py-3 text-center">
                     <p className="text-xl font-semibold text-emerald-600">{submitted}</p>
-                    <p className="text-xs text-slate-400">ส่งแล้ว</p>
+                    <p className="text-xs text-slate-400">{locale === "th" ? "ส่งแล้ว" : "Submitted"}</p>
                   </div>
                   <div className="px-4 py-3 text-center">
                     <p className={`text-xl font-semibold ${pending > 0 ? "text-amber-500" : "text-slate-300"}`}>{pending}</p>
-                    <p className="text-xs text-slate-400">ค้างอยู่</p>
+                    <p className="text-xs text-slate-400">{locale === "th" ? "ค้างอยู่" : "Pending"}</p>
                   </div>
                 </div>
 
@@ -141,7 +144,7 @@ export default async function CoachDashboardPage() {
                   {/* Session log today */}
                   <div>
                     <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                      บันทึกการสอนวันนี้ {existingLog ? "✓" : ""}
+                      {locale === "th" ? "บันทึกการสอนวันนี้" : "Today's Session Log"} {existingLog ? "✓" : ""}
                     </p>
                     <form action={saveSessionLog} className="flex flex-col gap-2">
                       <input type="hidden" name="enrollment_id" value={e.id} />
@@ -149,14 +152,14 @@ export default async function CoachDashboardPage() {
                       <textarea
                         name="summary"
                         rows={2}
-                        placeholder="สรุปสิ่งที่สอนวันนี้"
+                        placeholder={locale === "th" ? "สรุปสิ่งที่สอนวันนี้" : "Summarize what was taught today"}
                         defaultValue={existingLog?.summary ?? ""}
                         className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none"
                       />
                       <textarea
                         name="development_note"
                         rows={2}
-                        placeholder="พัฒนาการ — ดีขึ้นด้านไหน ยังต้องฝึกอะไร"
+                        placeholder={locale === "th" ? "พัฒนาการ — ดีขึ้นด้านไหน ยังต้องฝึกอะไร" : "Progress — what improved, what still needs work"}
                         defaultValue={existingLog?.development_note ?? ""}
                         className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none"
                       />
@@ -164,7 +167,7 @@ export default async function CoachDashboardPage() {
                         type="submit"
                         className="self-start rounded-lg bg-slate-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
                       >
-                        {existingLog ? "อัปเดต" : "บันทึก"}
+                        {existingLog ? (locale === "th" ? "อัปเดต" : "Update") : d.common.save}
                       </button>
                     </form>
                   </div>
@@ -172,7 +175,7 @@ export default async function CoachDashboardPage() {
                   {/* Recent logs */}
                   {recentLogs.length > 0 && (
                     <div>
-                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">บันทึกย้อนหลัง</p>
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">{locale === "th" ? "บันทึกย้อนหลัง" : "Recent logs"}</p>
                       <div className="flex flex-col gap-2">
                         {recentLogs.map((log) => (
                           <div key={log.session_date} className="rounded-lg bg-slate-50 p-3">
@@ -191,7 +194,7 @@ export default async function CoachDashboardPage() {
 
                   {/* Goals */}
                   <div>
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">เป้าหมาย</p>
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">{d.goals.title}</p>
                     {activeGoals.map((goal) => {
                       const milestones = [...(goal.goal_milestones ?? [])].sort((a, b) => a.sort_order - b.sort_order);
                       const done = milestones.filter((m) => m.achieved_at).length;
@@ -221,12 +224,12 @@ export default async function CoachDashboardPage() {
                     })}
 
                     <details className="mt-1">
-                      <summary className="cursor-pointer text-xs text-indigo-600 hover:underline">+ เพิ่มเป้าหมาย</summary>
+                      <summary className="cursor-pointer text-xs text-indigo-600 hover:underline">+ {d.goals.add}</summary>
                       <form action={saveGoal} className="mt-2 flex flex-col gap-2">
                         <input type="hidden" name="enrollment_id" value={e.id} />
                         <input
                           name="title"
-                          placeholder="เช่น สอบ Grade 3 Ballet"
+                          placeholder={locale === "th" ? "เช่น สอบ Grade 3 Ballet" : "e.g. Grade 3 Ballet exam"}
                           required
                           className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
                         />
@@ -234,14 +237,14 @@ export default async function CoachDashboardPage() {
                         <textarea
                           name="description"
                           rows={2}
-                          placeholder="รายละเอียด (ถ้ามี)"
+                          placeholder={locale === "th" ? "รายละเอียด (ถ้ามี)" : "Details (optional)"}
                           className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
                         />
                         <button
                           type="submit"
                           className="self-start rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
                         >
-                          บันทึกเป้าหมาย
+                          {locale === "th" ? "บันทึกเป้าหมาย" : "Save goal"}
                         </button>
                       </form>
                     </details>
@@ -253,14 +256,14 @@ export default async function CoachDashboardPage() {
                       href={`/dashboard/homework/subject/${e.id}`}
                       className="text-xs text-indigo-600 hover:underline"
                     >
-                      การบ้านทั้งหมด →
+                      {locale === "th" ? "การบ้านทั้งหมด →" : "All homework →"}
                     </a>
                     {child?.id && (
                       <a
                         href={`/dashboard/child/${child.id}`}
                         className="text-xs text-slate-500 hover:text-indigo-600 hover:underline"
                       >
-                        Portfolio ลูก →
+                        {locale === "th" ? "Portfolio ลูก →" : "Child Portfolio →"}
                       </a>
                     )}
                   </div>

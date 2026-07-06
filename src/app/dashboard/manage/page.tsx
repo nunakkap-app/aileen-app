@@ -8,6 +8,7 @@ import { ChildAccountButton } from "@/components/ChildAccountButton";
 import { LessonScheduleCard } from "@/components/LessonScheduleCard";
 import { type SessionOverride } from "@/components/CalendarMonth";
 import { categoryColor, categoryLabel, modeDotColor, modeLabel } from "@/lib/subjects";
+import { getLocale, getDictionary } from "@/lib/locale";
 import {
   addChild,
   addPracticeSchedule,
@@ -92,22 +93,17 @@ function buildCalendarItems(enrollmentsForChild: EnrollmentForCalendar[], lesson
   return { items: [...practiceItems, ...lessonItems], excluded };
 }
 
-const weekdayOptions = [
-  { value: 1, label: "จ" },
-  { value: 2, label: "อ" },
-  { value: 3, label: "พ" },
-  { value: 4, label: "พฤ" },
-  { value: 5, label: "ศ" },
-  { value: 6, label: "ส" },
-  { value: 0, label: "อา" },
-];
-
 function PracticeScheduleCard({
   enrollmentId,
   practiceSchedules,
+  weekdayOptions,
+  m,
 }: {
   enrollmentId: string;
   practiceSchedules: PracticeSchedule[];
+  weekdayOptions: { value: number; label: string }[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  m: Record<string, any>;
 }) {
   return (
     <>
@@ -132,18 +128,18 @@ function PracticeScheduleCard({
               required
               className="w-20 rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm"
             />
-            <span className="text-xs text-slate-500">ชม.</span>
+            <span className="text-xs text-slate-500">{m.hoursUnit}</span>
             <input name="start_date" type="date" defaultValue={s.start_date} required className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm" />
             <input name="end_date" type="date" defaultValue={s.end_date ?? ""} className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm" />
-            <input name="note" defaultValue={s.note ?? ""} placeholder="หมายเหตุ" className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm" />
-            <button className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700" type="submit">บันทึก</button>
+            <input name="note" defaultValue={s.note ?? ""} placeholder={m.note} className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm" />
+            <button className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700" type="submit">{m.save}</button>
             <form action={deletePracticeSchedule}>
               <input type="hidden" name="id" value={s.id} />
-              <button className="text-xs text-red-500 hover:underline" type="submit">ลบ</button>
+              <button className="text-xs text-red-500 hover:underline" type="submit">{m.delete}</button>
             </form>
           </form>
         ))}
-        {!practiceSchedules.length && <p className="text-sm text-slate-400">ยังไม่มีตาราง</p>}
+        {!practiceSchedules.length && <p className="text-sm text-slate-400">{m.noSchedule}</p>}
       </div>
       <form action={addPracticeSchedule} className="flex flex-wrap items-center gap-2">
         <input type="hidden" name="enrollment_id" value={enrollmentId} />
@@ -160,15 +156,15 @@ function PracticeScheduleCard({
           type="number"
           step="0.5"
           min="0.5"
-          placeholder="ชม./ครั้ง"
+          placeholder={`${m.hoursUnit}/ครั้ง`}
           required
           className="w-24 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
         />
         <input name="start_date" type="date" required className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
         <input name="end_date" type="date" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
-        <input name="note" placeholder="หมายเหตุ" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
+        <input name="note" placeholder={m.note} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
         <button className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800" type="submit">
-          เพิ่มตาราง
+          {m.addSchedule}
         </button>
       </form>
     </>
@@ -185,12 +181,19 @@ export default async function ManagePage({
 }: {
   searchParams: Promise<{ child?: string }>;
 }) {
+  const locale = await getLocale();
+  const d = await getDictionary(locale);
+  const m = d.manage as Record<string, string>;
+  const hw = d.homework as Record<string, string>;
+
+  const DOW = (d.weekdays?.short as string[]) ?? ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
+  const weekdayOptions = [1, 2, 3, 4, 5, 6, 0].map((v) => ({ value: v, label: DOW[v] }));
+
   const { child: childParam } = await searchParams;
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return null;
 
-  // Round 2: roles + pendingParentInvitations in parallel
   const [{ data: roles }, { data: pendingParentInvitations }] = await Promise.all([
     supabase.from("user_roles").select("role").eq("user_id", auth.user.id),
     supabase.from("parent_invitations").select("*, children(full_name)").eq("status", "pending").eq("invitee_email", auth.user.email ?? "").order("created_at", { ascending: false }),
@@ -199,7 +202,6 @@ export default async function ManagePage({
   const isParent = roles?.some((r) => r.role === "parent");
   const isCoach = roles?.some((r) => r.role === "coach");
 
-  // Round 3: guardian rows + coach subject IDs + pending coach invitations in parallel
   const [{ data: guardianRows }, { data: coachSubjectIds }, { data: pendingInvitations }] = await Promise.all([
     isParent
       ? supabase.from("child_guardians").select("is_owner, children(id, full_name, birthdate, username, child_user_id)").eq("user_id", auth.user.id)
@@ -224,7 +226,6 @@ export default async function ManagePage({
   const selectedChildId = childParam && childIds.includes(childParam) ? childParam : childIds[0];
   const selectedChild = children.find((c) => c.id === selectedChildId);
 
-  // Round 4: all parallel — guardians, enrollments, coach enrollments, invitations
   const [
     { data: allGuardians },
     { data: enrollments },
@@ -260,8 +261,6 @@ export default async function ManagePage({
     enrollmentsByChild.set(e.child_id, list);
   });
 
-  // "นักเรียนของฉัน" only needs to list students who aren't already shown under
-  // "ลูกของฉัน" — a self-teaching parent manages their own kids there directly.
   const externalCoachEnrollments = coachEnrollments?.filter((e) => !childIds.includes(e.child_id)) ?? null;
 
   const selectedEnrollments = selectedChildId ? enrollmentsByChild.get(selectedChildId) ?? [] : [];
@@ -277,7 +276,6 @@ export default async function ManagePage({
     ...(externalCoachEnrollments ?? []).flatMap((e) => (e.lesson_schedules ?? []).map((s: { id: string }) => s.id)),
   ];
 
-  // Round 5: assignments, overrides, exceptions in parallel
   const [{ data: parentAssignments }, { data: rawOverrides }, { data: rawLessonExceptions }] = await Promise.all([
     selectedEnrollmentIds.length
       ? supabase.from("assignments").select("*, submissions(*), enrollments(children(full_name), subjects(name))").in("enrollment_id", selectedEnrollmentIds).order("due_date", { ascending: true })
@@ -328,30 +326,36 @@ export default async function ManagePage({
 
   const selectedGuardians = allGuardians?.filter((g) => g.child_id === selectedChildId) ?? [];
 
+  const statusLabel = (status: string) => {
+    if (status === "accepted") return { text: m.accepted, cls: "text-emerald-600" };
+    if (status === "declined") return { text: m.declined, cls: "text-red-600" };
+    return { text: m.pending, cls: "text-amber-600" };
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
-      <NavBar email={auth.user.email ?? ""} isCoach={!!externalCoachEnrollments?.length} isParent={isParent} />
+      <NavBar email={auth.user.email ?? ""} isCoach={!!externalCoachEnrollments?.length} isParent={isParent} locale={locale} d={d} />
       <main className="mx-auto max-w-3xl px-6 py-10">
         {!!pendingParentInvitations?.length && (
           <section className="mb-10">
-            <h2 className="mb-3 text-sm font-semibold text-slate-500">คำเชิญให้เป็นผู้ปกครอง</h2>
+            <h2 className="mb-3 text-sm font-semibold text-slate-500">{m.pendingParentInvite}</h2>
             <div className="flex flex-col gap-3">
               {pendingParentInvitations.map((inv) => (
                 <div key={inv.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <p className="mb-3 text-sm text-slate-700">มีคนเชิญให้คุณเป็นผู้ปกครองของ <strong>{inv.children?.full_name}</strong></p>
+                  <p className="mb-3 text-sm text-slate-700">{m.pendingParentInviteText} <strong>{inv.children?.full_name}</strong></p>
                   <div className="flex gap-2">
                     <form action={respondParentInvitation}>
                       <input type="hidden" name="invitation_id" value={inv.id} />
                       <input type="hidden" name="decision" value="accepted" />
                       <button className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700" type="submit">
-                        ตอบรับ
+                        {d.common.accept}
                       </button>
                     </form>
                     <form action={respondParentInvitation}>
                       <input type="hidden" name="invitation_id" value={inv.id} />
                       <input type="hidden" name="decision" value="declined" />
                       <button className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50" type="submit">
-                        ปฏิเสธ
+                        {d.common.decline}
                       </button>
                     </form>
                   </div>
@@ -364,7 +368,7 @@ export default async function ManagePage({
         {isParent && (
           <section className="mb-10">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <h1 className="text-xl font-semibold text-slate-900">ลูกของฉัน</h1>
+              <h1 className="text-xl font-semibold text-slate-900">{m.myChildren}</h1>
             </div>
 
             <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -381,7 +385,7 @@ export default async function ManagePage({
                   <a
                     href={`/dashboard/child/${c.id}`}
                     className="rounded-full border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-400 hover:text-indigo-600"
-                    title="ดู Portfolio"
+                    title="Portfolio"
                   >
                     📁
                   </a>
@@ -394,18 +398,18 @@ export default async function ManagePage({
               ))}
               <details className="inline-block">
                 <summary className="cursor-pointer rounded-full border border-dashed border-slate-300 px-3 py-1.5 text-sm text-slate-500">
-                  + เพิ่มลูก
+                  {m.addChildBtn}
                 </summary>
                 <form action={addChild} className="mt-2 flex gap-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                   <input
                     name="full_name"
-                    placeholder="ชื่อลูก"
+                    placeholder={m.childNamePlaceholder}
                     required
                     className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
                   />
                   <input name="birthdate" type="date" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
                   <button className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800" type="submit">
-                    เพิ่มลูก
+                    {m.addChild}
                   </button>
                 </form>
               </details>
@@ -413,7 +417,7 @@ export default async function ManagePage({
 
             {!children.length && (
               <p className="rounded-2xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-400">
-                ยังไม่มีข้อมูลลูก — กด &quot;+ เพิ่มลูก&quot; ด้านบนได้เลย
+                {m.noChildData}
               </p>
             )}
 
@@ -421,7 +425,7 @@ export default async function ManagePage({
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <p className="mb-1 font-medium text-slate-900">
                   {selectedChild.full_name}
-                  {selectedChild.birthdate && <span className="ml-2 text-sm text-slate-400">เกิด {selectedChild.birthdate}</span>}
+                  {selectedChild.birthdate && <span className="ml-2 text-sm text-slate-400">{m.birthday} {selectedChild.birthdate}</span>}
                 </p>
 
                 {!!selectedGuardians.length && (
@@ -438,7 +442,7 @@ export default async function ManagePage({
                     {selectedChild.is_owner && (
                       <details className="group relative">
                         <summary className="cursor-pointer list-none rounded-full border border-dashed border-indigo-300 px-2.5 py-0.5 text-xs text-indigo-500 hover:bg-indigo-50">
-                          + เชิญผู้ปกครอง
+                          + {m.inviteParent}
                         </summary>
                         <div className="absolute left-0 top-7 z-20 w-72 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
                           <form action={inviteParent} className="flex flex-col gap-2">
@@ -446,24 +450,25 @@ export default async function ManagePage({
                             <input
                               name="invitee_email"
                               type="email"
-                              placeholder="อีเมลผู้ปกครองอีกท่าน"
+                              placeholder={m.inviteParentEmail}
                               required
                               className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
                             />
                             <button className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700" type="submit">
-                              ส่งคำเชิญ
+                              {m.sendInvite}
                             </button>
                           </form>
                           {!!sentParentInvitations?.length && (
                             <ul className="mt-2 flex flex-col gap-1 border-t border-slate-100 pt-2 text-xs text-slate-500">
-                              {sentParentInvitations.map((inv) => (
-                                <li key={inv.id} className="flex items-center justify-between">
-                                  <span>{inv.invitee_email}</span>
-                                  <span className={inv.status === "accepted" ? "text-emerald-600" : inv.status === "declined" ? "text-red-500" : "text-amber-500"}>
-                                    {inv.status === "accepted" ? "ตอบรับแล้ว" : inv.status === "declined" ? "ปฏิเสธ" : "รอตอบรับ"}
-                                  </span>
-                                </li>
-                              ))}
+                              {sentParentInvitations.map((inv) => {
+                                const s = statusLabel(inv.status);
+                                return (
+                                  <li key={inv.id} className="flex items-center justify-between">
+                                    <span>{inv.invitee_email}</span>
+                                    <span className={s.cls}>{s.text}</span>
+                                  </li>
+                                );
+                              })}
                             </ul>
                           )}
                         </div>
@@ -489,7 +494,7 @@ export default async function ManagePage({
                         )}
                         <form action={deleteEnrollment}>
                           <input type="hidden" name="id" value={e.id} />
-                          <button className="opacity-60 hover:text-red-500 hover:opacity-100" type="submit" title="ลบกิจกรรม">
+                          <button className="opacity-60 hover:text-red-500 hover:opacity-100" type="submit" title={m.deleteEnrollment}>
                             ×
                           </button>
                         </form>
@@ -497,7 +502,7 @@ export default async function ManagePage({
                     );
                   })}
                   {!enrollmentsByChild.get(selectedChild.id)?.length && (
-                    <span className="text-sm text-slate-400">ยังไม่มีกิจกรรม</span>
+                    <span className="text-sm text-slate-400">{m.noActivity}</span>
                   )}
                 </div>
 
@@ -515,15 +520,14 @@ export default async function ManagePage({
                         return (
                           <div key={e.id} className="rounded-xl border border-slate-200 p-3">
                             <p className="mb-2 text-sm font-medium text-slate-700">
-                              {e.subjects?.name} · {e.mode === "lesson" ? "เรียน" : "ซ้อม"}
+                              {e.subjects?.name} · {e.mode === "lesson" ? d.child.lesson : d.child.practice}
                             </p>
                             {e.mode === "lesson" ? (
                               <LessonScheduleCard enrollmentId={e.id} lessonSchedules={e.lesson_schedules ?? []} />
                             ) : (
-                              <PracticeScheduleCard enrollmentId={e.id} practiceSchedules={e.practice_schedules ?? []} />
+                              <PracticeScheduleCard enrollmentId={e.id} practiceSchedules={e.practice_schedules ?? []} weekdayOptions={weekdayOptions} m={{ ...m, save: d.common.save, delete: d.common.delete }} />
                             )}
 
-                            {/* Invite coach link — only for placeholder coaches */}
                             {e.subjects?.placeholder_coach_name && (
                               <CoachInviteButton
                                 enrollmentId={e.id}
@@ -531,10 +535,9 @@ export default async function ManagePage({
                               />
                             )}
 
-                            {/* Inline homework section */}
                             <details className="mt-3 border-t border-slate-100 pt-3">
                               <summary className="cursor-pointer text-xs font-medium text-slate-500">
-                                การบ้าน ({enrollmentAssignments.length})
+                                {m.homework} ({enrollmentAssignments.length})
                               </summary>
                               <div className="mt-2 flex flex-col gap-2">
                                 {enrollmentAssignments.map((a) => {
@@ -552,7 +555,7 @@ export default async function ManagePage({
                                           <span className="shrink-0 text-amber-500">●</span>
                                         )}
                                       </div>
-                                      {a.due_date && <p className="text-slate-400">กำหนดส่ง {a.due_date}</p>}
+                                      {a.due_date && <p className="text-slate-400">{hw.dueDate} {a.due_date}</p>}
                                     </div>
                                   );
                                 })}
@@ -562,22 +565,21 @@ export default async function ManagePage({
                                     href={`/dashboard/homework/subject/${e.id}`}
                                     className="block text-center text-xs text-slate-500 hover:text-indigo-600 hover:underline"
                                   >
-                                    ดูการบ้านทั้งหมดของวิชานี้ →
+                                    {m.viewAllHomework}
                                   </a>
                                 )}
 
-                                {/* Add assignment form */}
                                 <details className="mt-1">
-                                  <summary className="cursor-pointer text-xs text-indigo-600 hover:underline">+ เพิ่มการบ้าน</summary>
+                                  <summary className="cursor-pointer text-xs text-indigo-600 hover:underline">{m.addHomework}</summary>
                                   <form action={createAssignment} className="mt-2 flex flex-col gap-1.5">
                                     <input type="hidden" name="enrollment_id" value={e.id} />
-                                    <input name="title" placeholder="ชื่อการบ้าน" required className="rounded border border-slate-300 px-2 py-1 text-xs" />
-                                    <textarea name="description" placeholder="รายละเอียด" rows={2} className="rounded border border-slate-300 px-2 py-1 text-xs" />
-                                    <input name="reference_url" type="url" placeholder="Link อ้างอิง (ถ้ามี)" className="rounded border border-slate-300 px-2 py-1 text-xs" />
-                                    <textarea name="reference_text" placeholder="เอกสาร / คำอธิบาย reference" rows={2} className="rounded border border-slate-300 px-2 py-1 text-xs" />
-                                    <input name="suggested_minutes" type="number" min="1" placeholder="นาทีโดยประมาณ" className="w-36 rounded border border-slate-300 px-2 py-1 text-xs" />
+                                    <input name="title" placeholder={hw.titlePlaceholder} required className="rounded border border-slate-300 px-2 py-1 text-xs" />
+                                    <textarea name="description" placeholder={hw.descPlaceholder} rows={2} className="rounded border border-slate-300 px-2 py-1 text-xs" />
+                                    <input name="reference_url" type="url" placeholder={hw.refUrlPlaceholder} className="rounded border border-slate-300 px-2 py-1 text-xs" />
+                                    <textarea name="reference_text" placeholder={hw.refTextPlaceholder} rows={2} className="rounded border border-slate-300 px-2 py-1 text-xs" />
+                                    <input name="suggested_minutes" type="number" min="1" placeholder={hw.minutesPlaceholder} className="w-36 rounded border border-slate-300 px-2 py-1 text-xs" />
                                     <div className="flex flex-wrap items-center gap-1">
-                                      <span className="text-xs text-slate-400">ฝึกทุกวัน:</span>
+                                      <span className="text-xs text-slate-400">{m.practiceEachDay}</span>
                                       <fieldset className="flex gap-1 text-xs text-slate-600">
                                         {weekdayOptions.map((w) => (
                                           <label key={w.value} className="flex items-center gap-0.5 rounded border border-slate-300 px-1 py-0.5">
@@ -588,7 +590,7 @@ export default async function ManagePage({
                                       </fieldset>
                                     </div>
                                     <button className="self-start rounded bg-indigo-600 px-2 py-1 text-xs font-medium text-white hover:bg-indigo-700" type="submit">
-                                      มอบหมาย
+                                      {m.assignHomework}
                                     </button>
                                   </form>
                                 </details>
@@ -603,7 +605,7 @@ export default async function ManagePage({
 
                 <details className="group mb-2">
                   <summary className="cursor-pointer text-sm font-medium text-indigo-600">
-                    + แอดครู
+                    {m.inviteCoach}
                   </summary>
                   <form action={inviteCoach} className="mt-3 flex flex-wrap gap-2">
                     <input type="hidden" name="child_id" value={selectedChild.id} />
@@ -611,46 +613,46 @@ export default async function ManagePage({
                     <SubjectPicker className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
                     <fieldset className="flex items-center gap-3 text-xs text-slate-600">
                       <label className="flex items-center gap-1">
-                        <input type="radio" name="mode" value="practice" defaultChecked /> ซ้อม (ยืดหยุ่น)
+                        <input type="radio" name="mode" value="practice" defaultChecked /> {m.practiceFlex}
                       </label>
                       <label className="flex items-center gap-1">
-                        <input type="radio" name="mode" value="lesson" /> เรียน (ล็อกเวลา)
+                        <input type="radio" name="mode" value="lesson" /> {m.lessonFixed}
                       </label>
                     </fieldset>
                     <input
                       name="note"
-                      placeholder="สิ่งที่ต้องการ (ถ้ามี)"
+                      placeholder={m.noteOptional}
                       className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
                     />
                     <button
                       className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
                       type="submit"
                     >
-                      ส่งคำเชิญ
+                      {m.sendInvite}
                     </button>
                   </form>
                 </details>
 
                 <details className="group mb-2">
                   <summary className="cursor-pointer text-sm font-medium text-emerald-600">
-                    + สอนลูกเอง
+                    {m.selfTeach}
                   </summary>
                   <form action={selfCoach} className="mt-3 flex flex-wrap gap-2">
                     <input type="hidden" name="child_id" value={selectedChild.id} />
                     <SubjectPicker className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" />
                     <fieldset className="flex items-center gap-3 text-xs text-slate-600">
                       <label className="flex items-center gap-1">
-                        <input type="radio" name="mode" value="practice" defaultChecked /> ซ้อม (ยืดหยุ่น)
+                        <input type="radio" name="mode" value="practice" defaultChecked /> {m.practiceFlex}
                       </label>
                       <label className="flex items-center gap-1">
-                        <input type="radio" name="mode" value="lesson" /> เรียน (ล็อกเวลา)
+                        <input type="radio" name="mode" value="lesson" /> {m.lessonFixed}
                       </label>
                     </fieldset>
                     <button
                       className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
                       type="submit"
                     >
-                      เริ่มสอนเอง
+                      {m.startTeaching}
                     </button>
                   </form>
                 </details>
@@ -658,31 +660,31 @@ export default async function ManagePage({
                 {selectedChild.is_owner && (
                   <details className="group">
                     <summary className="cursor-pointer text-sm font-medium text-slate-600">
-                      + เพิ่มผปค.
+                      {m.addParent}
                     </summary>
                     <form action={inviteParent} className="mt-3 flex flex-wrap gap-2">
                       <input type="hidden" name="child_id" value={selectedChild.id} />
                       <input
                         name="invitee_email"
                         type="email"
-                        placeholder="อีเมลผู้ปกครองอีกท่าน"
+                        placeholder={m.inviteParentEmail}
                         required
                         className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
                       />
                       <button className="rounded-lg bg-slate-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-800" type="submit">
-                        ส่งคำเชิญ
+                        {m.sendInvite}
                       </button>
                     </form>
                     {!!sentParentInvitations?.length && (
                       <ul className="mt-2 flex flex-col gap-1 text-xs text-slate-500">
-                        {sentParentInvitations.map((inv) => (
-                          <li key={inv.id}>
-                            {inv.invitee_email} ·{" "}
-                            <span className={inv.status === "accepted" ? "text-emerald-600" : inv.status === "declined" ? "text-red-600" : "text-amber-600"}>
-                              {inv.status === "accepted" ? "ตอบรับแล้ว" : inv.status === "declined" ? "ปฏิเสธ" : "รอตอบรับ"}
-                            </span>
-                          </li>
-                        ))}
+                        {sentParentInvitations.map((inv) => {
+                          const s = statusLabel(inv.status);
+                          return (
+                            <li key={inv.id}>
+                              {inv.invitee_email} · <span className={s.cls}>{s.text}</span>
+                            </li>
+                          );
+                        })}
                       </ul>
                     )}
                   </details>
@@ -690,24 +692,16 @@ export default async function ManagePage({
 
                 {!!sentInvitations?.length && (
                   <div className="mt-4">
-                    <h3 className="mb-2 text-sm font-semibold text-slate-500">คำเชิญครูที่ส่งไปแล้ว</h3>
+                    <h3 className="mb-2 text-sm font-semibold text-slate-500">{m.sentCoachInvites}</h3>
                     <ul className="flex flex-col gap-1 text-sm">
-                      {sentInvitations.map((inv) => (
-                        <li key={inv.id} className="text-slate-600">
-                          {inv.coach_email} ({inv.subject_name}) ·{" "}
-                          <span
-                            className={
-                              inv.status === "accepted"
-                                ? "text-emerald-600"
-                                : inv.status === "declined"
-                                  ? "text-red-600"
-                                  : "text-amber-600"
-                            }
-                          >
-                            {inv.status === "accepted" ? "ตอบรับแล้ว" : inv.status === "declined" ? "ปฏิเสธ" : "รอตอบรับ"}
-                          </span>
-                        </li>
-                      ))}
+                      {sentInvitations.map((inv) => {
+                        const s = statusLabel(inv.status);
+                        return (
+                          <li key={inv.id} className="text-slate-600">
+                            {inv.coach_email} ({inv.subject_name}) · <span className={s.cls}>{s.text}</span>
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                 )}
@@ -718,7 +712,7 @@ export default async function ManagePage({
 
         {isCoach && !!externalCoachEnrollments?.length && (
           <section className="mb-10">
-            <h2 className="mb-4 text-xl font-semibold text-slate-900">นักเรียนของฉัน</h2>
+            <h2 className="mb-4 text-xl font-semibold text-slate-900">{m.myStudents}</h2>
             <div className="flex flex-col gap-4">
               {[...coachEnrollmentsByChild.entries()].map(([childId, { childName, items }]) => (
                 <div key={childId} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -735,7 +729,7 @@ export default async function ManagePage({
                           {e.subjects?.name} · {categoryLabel[e.subjects?.category]} · {modeLabel[e.mode]}
                           <form action={deleteEnrollment}>
                             <input type="hidden" name="id" value={e.id} />
-                            <button className="opacity-60 hover:text-red-500 hover:opacity-100" type="submit" title="ลบกิจกรรม">
+                            <button className="opacity-60 hover:text-red-500 hover:opacity-100" type="submit" title={m.deleteEnrollment}>
                               ×
                             </button>
                           </form>
@@ -755,18 +749,17 @@ export default async function ManagePage({
                       return (
                         <div key={e.id} className="rounded-xl border border-slate-200 p-3">
                           <p className="mb-2 text-sm font-medium text-slate-700">
-                            {e.subjects?.name} · {e.mode === "lesson" ? "เรียน" : "ซ้อม"}
+                            {e.subjects?.name} · {e.mode === "lesson" ? d.child.lesson : d.child.practice}
                           </p>
                           {e.mode === "lesson" ? (
                             <LessonScheduleCard enrollmentId={e.id} lessonSchedules={e.lesson_schedules ?? []} />
                           ) : (
-                            <PracticeScheduleCard enrollmentId={e.id} practiceSchedules={e.practice_schedules ?? []} />
+                            <PracticeScheduleCard enrollmentId={e.id} practiceSchedules={e.practice_schedules ?? []} weekdayOptions={weekdayOptions} m={{ ...m, save: d.common.save, delete: d.common.delete }} />
                           )}
 
-                          {/* Inline homework for coach */}
                           <details className="mt-3 border-t border-slate-100 pt-3">
                             <summary className="cursor-pointer text-xs font-medium text-slate-500">
-                              การบ้าน ({coachEnrollmentAssignments.length})
+                              {m.homework} ({coachEnrollmentAssignments.length})
                             </summary>
                             <div className="mt-2 flex flex-col gap-2">
                               {coachEnrollmentAssignments.map((a) => {
@@ -784,7 +777,7 @@ export default async function ManagePage({
                                         <span className="shrink-0 text-amber-500">●</span>
                                       )}
                                     </div>
-                                    {a.due_date && <p className="text-slate-400">กำหนดส่ง {a.due_date}</p>}
+                                    {a.due_date && <p className="text-slate-400">{hw.dueDate} {a.due_date}</p>}
                                   </div>
                                 );
                               })}
@@ -794,21 +787,21 @@ export default async function ManagePage({
                                   href={`/dashboard/homework/subject/${e.id}`}
                                   className="block text-center text-xs text-slate-500 hover:text-indigo-600 hover:underline"
                                 >
-                                  ดูการบ้านทั้งหมดของวิชานี้ →
+                                  {m.viewAllHomework}
                                 </a>
                               )}
 
                               <details className="mt-1">
-                                <summary className="cursor-pointer text-xs text-indigo-600 hover:underline">+ มอบหมายการบ้าน</summary>
+                                <summary className="cursor-pointer text-xs text-indigo-600 hover:underline">{m.addAssignment}</summary>
                                 <form action={createAssignment} className="mt-2 flex flex-col gap-1.5">
                                   <input type="hidden" name="enrollment_id" value={e.id} />
-                                  <input name="title" placeholder="ชื่อการบ้าน" required className="rounded border border-slate-300 px-2 py-1 text-xs" />
-                                  <textarea name="description" placeholder="รายละเอียด" rows={2} className="rounded border border-slate-300 px-2 py-1 text-xs" />
-                                  <input name="reference_url" type="url" placeholder="Link อ้างอิง (ถ้ามี)" className="rounded border border-slate-300 px-2 py-1 text-xs" />
-                                  <textarea name="reference_text" placeholder="เอกสาร / คำอธิบาย reference" rows={2} className="rounded border border-slate-300 px-2 py-1 text-xs" />
-                                  <input name="suggested_minutes" type="number" min="1" placeholder="นาทีโดยประมาณ" className="w-36 rounded border border-slate-300 px-2 py-1 text-xs" />
+                                  <input name="title" placeholder={hw.titlePlaceholder} required className="rounded border border-slate-300 px-2 py-1 text-xs" />
+                                  <textarea name="description" placeholder={hw.descPlaceholder} rows={2} className="rounded border border-slate-300 px-2 py-1 text-xs" />
+                                  <input name="reference_url" type="url" placeholder={hw.refUrlPlaceholder} className="rounded border border-slate-300 px-2 py-1 text-xs" />
+                                  <textarea name="reference_text" placeholder={hw.refTextPlaceholder} rows={2} className="rounded border border-slate-300 px-2 py-1 text-xs" />
+                                  <input name="suggested_minutes" type="number" min="1" placeholder={hw.minutesPlaceholder} className="w-36 rounded border border-slate-300 px-2 py-1 text-xs" />
                                   <div className="flex flex-wrap items-center gap-1">
-                                    <span className="text-xs text-slate-400">ฝึกทุกวัน:</span>
+                                    <span className="text-xs text-slate-400">{m.practiceEachDay}</span>
                                     <fieldset className="flex gap-1 text-xs text-slate-600">
                                       {weekdayOptions.map((w) => (
                                         <label key={w.value} className="flex items-center gap-0.5 rounded border border-slate-300 px-1 py-0.5">
@@ -819,7 +812,7 @@ export default async function ManagePage({
                                     </fieldset>
                                   </div>
                                   <button className="self-start rounded bg-indigo-600 px-2 py-1 text-xs font-medium text-white hover:bg-indigo-700" type="submit">
-                                    มอบหมาย
+                                    {m.assignHomework}
                                   </button>
                                 </form>
                               </details>
@@ -837,12 +830,12 @@ export default async function ManagePage({
 
         {isCoach && (
           <section>
-            <h2 className="mb-4 text-xl font-semibold text-slate-900">คำเชิญที่รอตอบรับ</h2>
+            <h2 className="mb-4 text-xl font-semibold text-slate-900">{m.pendingCoachInvite}</h2>
             <div className="flex flex-col gap-3">
               {pendingInvitations?.map((inv) => (
                 <div key={inv.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                   <p className="mb-3 text-sm text-slate-700">
-                    {inv.children?.full_name} อยากเรียน <strong>{inv.subject_name}</strong> ({categoryLabel[inv.category]})
+                    {inv.children?.full_name} {m.wantsToLearn} <strong>{inv.subject_name}</strong> ({categoryLabel[inv.category]})
                     {inv.note ? ` — ${inv.note}` : ""}
                   </p>
                   <div className="flex gap-2">
@@ -850,20 +843,20 @@ export default async function ManagePage({
                       <input type="hidden" name="invitation_id" value={inv.id} />
                       <input type="hidden" name="decision" value="accepted" />
                       <button className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700" type="submit">
-                        ตอบรับ
+                        {d.common.accept}
                       </button>
                     </form>
                     <form action={respondInvitation}>
                       <input type="hidden" name="invitation_id" value={inv.id} />
                       <input type="hidden" name="decision" value="declined" />
                       <button className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50" type="submit">
-                        ปฏิเสธ
+                        {d.common.decline}
                       </button>
                     </form>
                   </div>
                 </div>
               ))}
-              {!pendingInvitations?.length && <p className="text-sm text-slate-400">ไม่มีคำเชิญใหม่</p>}
+              {!pendingInvitations?.length && <p className="text-sm text-slate-400">{m.noInvite}</p>}
             </div>
           </section>
         )}

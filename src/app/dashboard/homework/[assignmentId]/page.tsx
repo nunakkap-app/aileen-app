@@ -4,6 +4,7 @@ import { HomeworkSubmissionPanel } from "@/components/HomeworkSubmissionPanel";
 import { categoryColor, categoryLabel } from "@/lib/subjects";
 import { practiceHomeworkToday, closeAssignment } from "@/app/dashboard/session/actions";
 import { HomeworkEditActions } from "@/components/HomeworkEditActions";
+import { getLocale, getDictionary } from "@/lib/locale";
 
 function one<T>(v: T | T[] | null | undefined): T | null {
   if (Array.isArray(v)) return v[0] ?? null;
@@ -20,6 +21,9 @@ export default async function HomeworkDetailPage({
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return null;
 
+  const locale = await getLocale();
+  const d = await getDictionary(locale);
+
   const { data: assignment } = await supabase
     .from("assignments")
     .select("*, submissions(*), enrollments(id, children(full_name), subjects(name, category))")
@@ -29,7 +33,7 @@ export default async function HomeworkDetailPage({
   if (!assignment) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50">
-        <p className="text-slate-500">ไม่พบการบ้านนี้</p>
+        <p className="text-slate-500">{d.homework.notFound}</p>
       </div>
     );
   }
@@ -53,23 +57,24 @@ export default async function HomeworkDetailPage({
   const isOverdue = assignment.due_date && new Date(assignment.due_date) < new Date() && submission?.status !== "submitted";
   const isChild = auth.user.user_metadata?.is_child === true;
 
+  const weekdayLabels = (d.weekdays?.short as string[]) ?? ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
+
   return (
     <div className="min-h-screen bg-slate-50">
-      <NavBar email={auth.user.email ?? ""} />
+      <NavBar email={auth.user.email ?? ""} locale={locale} d={d} />
       <main className="mx-auto max-w-lg px-6 py-10">
         <div className="mb-4 flex items-center justify-between">
           <a href={isChild ? "/child" : "/dashboard/manage"} className="text-sm text-indigo-600 hover:underline">
-            ‹ กลับ
+            {d.common.back}
           </a>
           <a
             href={`/dashboard/homework/subject/${enrollmentId}`}
             className="text-sm text-slate-500 hover:underline"
           >
-            ดูการบ้านทั้งหมดของวิชานี้ ›
+            {d.homework.viewSubject}
           </a>
         </div>
 
-        {/* Assignment info */}
         <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
@@ -78,12 +83,12 @@ export default async function HomeworkDetailPage({
                 {subjectName} · {categoryLabel[category]}
               </span>
               <h1 className="mt-1 text-xl font-semibold text-slate-900">{assignment.title}</h1>
-              {childName && <p className="mt-0.5 text-sm text-slate-500">สำหรับ {childName}</p>}
+              {childName && <p className="mt-0.5 text-sm text-slate-500">{d.homework.for} {childName}</p>}
             </div>
             {assignment.due_date && (
               <p className={`shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium ${isOverdue ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-700"}`}>
-                {isOverdue ? "เกินกำหนด" : "กำหนดส่ง"}<br />
-                {new Date(assignment.due_date).toLocaleDateString("th-TH", { dateStyle: "medium" })}
+                {isOverdue ? d.homework.overdue : d.homework.dueDate}<br />
+                {new Date(assignment.due_date).toLocaleDateString(locale === "th" ? "th-TH" : "en-GB", { dateStyle: "medium" })}
               </p>
             )}
           </div>
@@ -108,28 +113,27 @@ export default async function HomeworkDetailPage({
 
           {assignment.suggested_minutes && (
             <p className="mb-2 text-sm text-slate-500">
-              ⏱ เวลาโดยประมาณ{" "}
+              ⏱ {d.homework.estTime}{" "}
               <span className="font-medium text-slate-800">
                 {assignment.suggested_minutes >= 60
-                  ? `${Math.floor(assignment.suggested_minutes / 60)} ชม.${assignment.suggested_minutes % 60 ? ` ${assignment.suggested_minutes % 60} นาที` : ""}`
-                  : `${assignment.suggested_minutes} นาที`}
+                  ? `${Math.floor(assignment.suggested_minutes / 60)} ${d.homework.hours}${assignment.suggested_minutes % 60 ? ` ${assignment.suggested_minutes % 60} ${d.homework.minutes}` : ""}`
+                  : `${assignment.suggested_minutes} ${d.homework.minutes}`}
               </span>
             </p>
           )}
 
           {assignment.suggested_weekdays?.length > 0 && (
             <p className="mb-2 text-sm text-slate-500">
-              📅 แนะนำให้ฝึก:{" "}
-              {(["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"] as string[])
+              📅 {d.homework.suggestDays}:{" "}
+              {weekdayLabels
                 .filter((_, i) => assignment.suggested_weekdays.includes(i))
                 .join(" · ")}
             </p>
           )}
 
-          {/* Reference */}
           {(assignment.reference_url || assignment.reference_text) && (
             <div className="mt-4 rounded-xl bg-blue-50 p-3">
-              <p className="mb-1 text-xs font-semibold text-blue-700">เอกสาร / Reference</p>
+              <p className="mb-1 text-xs font-semibold text-blue-700">{d.homework.reference}</p>
               {assignment.reference_text && (
                 <p className="whitespace-pre-wrap text-sm text-blue-800">{assignment.reference_text}</p>
               )}
@@ -147,14 +151,13 @@ export default async function HomeworkDetailPage({
           )}
         </div>
 
-        {/* Practice / close actions */}
         <div className="mb-4 flex flex-wrap gap-2">
           {isChild && (
             <a
               href={`/child/timer/${assignmentId}`}
               className="flex items-center gap-2 rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2.5 text-sm font-medium text-indigo-700 transition-colors hover:bg-indigo-100"
             >
-              ⏱ จับเวลา
+              {d.homework.timer}
             </a>
           )}
 
@@ -177,7 +180,7 @@ export default async function HomeworkDetailPage({
               }`}>
                 {practicedToday ? "✓" : ""}
               </span>
-              {practicedToday ? "ซ้อมวันนี้แล้ว ✓" : "ซ้อมไปเรื่อยๆ (วันนี้)"}
+              {practicedToday ? d.homework.practicedToday : d.homework.practiceToday}
             </button>
           </form>
 
@@ -190,14 +193,13 @@ export default async function HomeworkDetailPage({
               type="submit"
               className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-400 hover:border-red-200 hover:text-red-500"
             >
-              จบการบ้านนี้ ไม่ต้องทำแล้ว
+              {d.homework.closeHomework}
             </button>
           </form>
         </div>
 
-        {/* Submission */}
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-sm font-semibold text-slate-700">ส่งการบ้าน</h2>
+          <h2 className="mb-4 text-sm font-semibold text-slate-700">{d.homework.submitSection}</h2>
           {submission ? (
             <HomeworkSubmissionPanel
               submission={submission}
@@ -205,7 +207,7 @@ export default async function HomeworkDetailPage({
               redirectPath={redirectPath}
             />
           ) : (
-            <p className="text-sm text-slate-400">ยังไม่มีการบ้านนี้ในระบบ</p>
+            <p className="text-sm text-slate-400">{d.homework.noSubmission}</p>
           )}
         </div>
       </main>

@@ -1,9 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { NavBar } from "@/components/NavBar";
 import { redirect } from "next/navigation";
-
-const DOW_TH: Record<number, string> = { 0: "อา", 1: "จ", 2: "อ", 3: "พ", 4: "พฤ", 5: "ศ", 6: "ส" };
-const MONTH_TH = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+import { getLocale, getDictionary } from "@/lib/locale";
 
 function getBangkokDate() {
   return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
@@ -91,6 +89,9 @@ export default async function TodoPage({
 }: {
   searchParams: Promise<{ view?: string; child?: string }>;
 }) {
+  const locale = await getLocale();
+  const d = await getDictionary(locale);
+
   const { view: rawView, child: childParam } = await searchParams;
   const view = rawView === "week" || rawView === "month" ? rawView : "today";
 
@@ -114,9 +115,9 @@ export default async function TodoPage({
   if (!children.length) {
     return (
       <div className="min-h-screen bg-slate-50">
-        <NavBar email={auth.user.email ?? ""} />
+        <NavBar email={auth.user.email ?? ""} locale={locale} d={d} />
         <main className="mx-auto max-w-lg px-6 py-10">
-          <p className="text-slate-400">ยังไม่มีเด็กในระบบ ไปที่ <a href="/dashboard/manage" className="text-indigo-600 hover:underline">จัดการตาราง</a> เพื่อเพิ่มเด็ก</p>
+          <p className="text-slate-400">{d.todo.noChild} <a href="/dashboard/manage" className="text-indigo-600 hover:underline">{d.todo.noChildLink}</a></p>
         </main>
       </div>
     );
@@ -169,14 +170,17 @@ export default async function TodoPage({
     : allAssignments;
 
   const tabs = [
-    { key: "today", label: "วันนี้" },
-    { key: "week", label: "สัปดาห์" },
-    { key: "month", label: "เดือน" },
+    { key: "today", label: d.common.today },
+    { key: "week", label: d.common.week },
+    { key: "month", label: d.common.month },
   ];
+
+  const DOW = (d.weekdays?.short as string[]) ?? ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
+  const MONTHS = (d.months as string[]) ?? ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <NavBar email={auth.user.email ?? ""} />
+      <NavBar email={auth.user.email ?? ""} locale={locale} d={d} />
       <main className="mx-auto max-w-lg px-6 py-8">
 
         {/* Child selector */}
@@ -196,9 +200,9 @@ export default async function TodoPage({
 
         <div className="mb-5 flex items-center justify-between">
           <h1 className="text-lg font-bold text-slate-900">
-            To-do ของ {selectedChild.full_name}
+            {d.todo.title} {selectedChild.full_name}
           </h1>
-          <a href="/dashboard/manage" className="text-sm text-indigo-600 hover:underline">จัดการตาราง ›</a>
+          <a href="/dashboard/manage" className="text-sm text-indigo-600 hover:underline">{d.todo.manageLink}</a>
         </div>
 
         {/* View tabs */}
@@ -219,18 +223,22 @@ export default async function TodoPage({
           <section>
             <h2 className="mb-2 text-sm font-semibold text-slate-700">
               {view === "today"
-                ? `ตารางวันนี้ — ${DOW_TH[todayDow]} ${today.getDate()} ${MONTH_TH[today.getMonth()]}`
-                : view === "week" ? "ตารางสัปดาห์นี้" : `ตารางเดือน ${MONTH_TH[today.getMonth()]} ${today.getFullYear() + 543}`}
+                ? `${d.child.todaySchedule} — ${DOW[todayDow]} ${today.getDate()} ${MONTHS[today.getMonth()]}`
+                : view === "week"
+                  ? d.child.weekSchedule
+                  : `${d.child.monthSchedule} ${MONTHS[today.getMonth()]}${locale === "th" ? ` ${today.getFullYear() + 543}` : ` ${today.getFullYear()}`}`}
             </h2>
             {schedule.length === 0 ? (
-              <p className="text-sm text-slate-400">ไม่มีตาราง{view === "today" ? "วันนี้" : view === "week" ? "สัปดาห์นี้" : "เดือนนี้"}</p>
+              <p className="text-sm text-slate-400">
+                {view === "today" ? d.child.noScheduleToday : view === "week" ? d.child.noScheduleWeek : d.child.noScheduleMonth}
+              </p>
             ) : (
               <div className="flex flex-col gap-2">
                 {schedule.map(({ date, sessions }) => (
                   <div key={dateStr(date)} className="rounded-xl border border-slate-200 bg-white p-3">
                     {view !== "today" && (
                       <p className={`mb-1.5 text-xs font-semibold ${dateStr(date) === dateStr(today) ? "text-indigo-600" : "text-slate-500"}`}>
-                        {DOW_TH[date.getDay()]} {date.getDate()} {MONTH_TH[date.getMonth()]}{dateStr(date) === dateStr(today) ? " (วันนี้)" : ""}
+                        {DOW[date.getDay()]} {date.getDate()} {MONTHS[date.getMonth()]}{dateStr(date) === dateStr(today) ? ` (${d.common.today})` : ""}
                       </p>
                     )}
                     <div className="flex flex-col gap-1">
@@ -238,7 +246,7 @@ export default async function TodoPage({
                         <div key={i} className="flex items-center gap-2 text-sm text-slate-700">
                           <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${s.kind === "lesson" ? "bg-violet-400" : "bg-indigo-400"}`} />
                           <span className="font-medium">{s.label}</span>
-                          <span className="text-xs text-slate-400">{s.kind === "lesson" ? "เรียน" : "ซ้อม"}</span>
+                          <span className="text-xs text-slate-400">{s.kind === "lesson" ? d.todo.lesson : d.todo.practice}</span>
                           {s.time && <span className="text-slate-500">{s.time}</span>}
                           {s.hours && !s.time && <span className="text-slate-500">{s.hours} ชม.</span>}
                         </div>
@@ -253,10 +261,10 @@ export default async function TodoPage({
           {/* Homework */}
           <section>
             <h2 className="mb-2 text-sm font-semibold text-slate-700">
-              {view === "today" ? "การบ้านวันนี้" : "การบ้านทั้งหมด"}
+              {view === "today" ? d.child.homeworkToday : d.child.homeworkAll}
             </h2>
             {homework.length === 0 ? (
-              <p className="text-sm text-slate-400">ไม่มีการบ้าน{view === "today" ? "วันนี้" : ""}</p>
+              <p className="text-sm text-slate-400">{view === "today" ? d.child.noHomeworkToday : d.child.noHomework}</p>
             ) : (
               <div className="flex flex-col gap-2">
                 {homework.map((a) => {
@@ -276,9 +284,9 @@ export default async function TodoPage({
                           <p className="text-xs text-slate-400">{a.subjectName}</p>
                         </div>
                         {submitted
-                          ? <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">ส่งแล้ว ✓</span>
+                          ? <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">{d.todo.submitted}</span>
                           : practicedToday
-                            ? <span className="shrink-0 rounded-full bg-indigo-100 px-2 py-0.5 text-xs text-indigo-700">ซ้อมวันนี้ ✓</span>
+                            ? <span className="shrink-0 rounded-full bg-indigo-100 px-2 py-0.5 text-xs text-indigo-700">{d.todo.practicedToday}</span>
                             : <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-400" />}
                       </div>
                       {a.description && <p className="mt-1 text-xs text-slate-500 line-clamp-2">{a.description}</p>}

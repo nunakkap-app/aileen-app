@@ -3,6 +3,7 @@ import { NavBar } from "@/components/NavBar";
 import { SessionTimer } from "@/components/SessionTimer";
 import { completeLesson, overrideSessionTime, rescheduleSession, saveNote, uploadMedia } from "../../actions";
 import { HomeworkSection } from "@/components/HomeworkSection";
+import { getLocale, getDictionary } from "@/lib/locale";
 
 function timeToSeconds(t: string) {
   const [h, m, s] = t.split(":").map(Number);
@@ -15,6 +16,8 @@ export default async function SessionPage({
   params: Promise<{ enrollmentId: string; date: string }>;
 }) {
   const { enrollmentId, date } = await params;
+  const locale = await getLocale();
+  const d = await getDictionary(locale);
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return null;
@@ -70,19 +73,19 @@ export default async function SessionPage({
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <NavBar email={auth.user.email ?? ""} />
+      <NavBar email={auth.user.email ?? ""} locale={locale} d={d} />
       <main className="mx-auto max-w-lg px-6 py-10">
         <a href="/dashboard/manage" className="mb-4 inline-block text-sm text-indigo-600 hover:underline">
-          ‹ กลับไปจัดการตาราง
+          {d.common.back}
         </a>
         <h1 className="mb-1 text-xl font-semibold text-slate-900">
           {enrollment?.children?.full_name} · {enrollment?.subjects?.name}
         </h1>
         <p className="mb-1 text-sm text-slate-500">
-          {new Date(date).toLocaleDateString("th-TH", { dateStyle: "full" })}
+          {new Date(date).toLocaleDateString(locale === "th" ? "th-TH" : "en-GB", { dateStyle: "full" })}
         </p>
         {rescheduledTo && (
-          <p className="mb-4 text-xs text-amber-600">↔ ย้ายไปเรียน {new Date(rescheduledTo).toLocaleDateString("th-TH", { dateStyle: "long" })} แทน</p>
+          <p className="mb-4 text-xs text-amber-600">↔ {locale === "th" ? "ย้ายไปเรียน" : "Rescheduled to"} {new Date(rescheduledTo).toLocaleDateString(locale === "th" ? "th-TH" : "en-GB", { dateStyle: "long" })} {locale === "th" ? "แทน" : ""}</p>
         )}
 
         {/* Timer / complete */}
@@ -90,7 +93,7 @@ export default async function SessionPage({
           {isLesson ? (
             log?.status === "done" ? (
               <p className="text-emerald-600">
-                ✓ เรียนเสร็จแล้ว ({(log.elapsed_seconds / 3600).toFixed(1)} ชม.)
+                ✓ {locale === "th" ? "เรียนเสร็จแล้ว" : "Lesson complete"} ({(log.elapsed_seconds / 3600).toFixed(1)} {d.manage?.hoursUnit ?? "ชม."})
               </p>
             ) : (
               <form action={completeLesson} className="flex items-center gap-3">
@@ -101,12 +104,12 @@ export default async function SessionPage({
                   className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
                   type="submit"
                 >
-                  ✓ เรียนเสร็จแล้ว
+                  ✓ {locale === "th" ? "เรียนเสร็จแล้ว" : "Mark complete"}
                 </button>
                 {effectiveStartTime && effectiveEndTime && (
                   <span className="text-sm text-slate-500">
                     ({effectiveStartTime.slice(0, 5)}-{effectiveEndTime.slice(0, 5)} ·{" "}
-                    {(lessonDurationSeconds / 3600).toFixed(1)} ชม.{override?.override_start_time ? " ✏︎" : ""})
+                    {(lessonDurationSeconds / 3600).toFixed(1)} {d.manage?.hoursUnit ?? "ชม."}{override?.override_start_time ? " ✏︎" : ""})
                   </span>
                 )}
               </form>
@@ -118,19 +121,19 @@ export default async function SessionPage({
 
         {/* One-off time/hours override */}
         <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="mb-3 text-sm font-semibold text-slate-700">แก้ไขเฉพาะครั้งนี้</h2>
+          <h2 className="mb-3 text-sm font-semibold text-slate-700">{locale === "th" ? "แก้ไขเฉพาะครั้งนี้" : "Override for this session"}</h2>
           {isLesson ? (
             <form action={overrideSessionTime} className="flex flex-wrap items-center gap-2">
               <input type="hidden" name="enrollment_id" value={enrollmentId} />
               <input type="hidden" name="date" value={date} />
-              <label className="text-xs text-slate-500">เวลาเริ่ม</label>
+              <label className="text-xs text-slate-500">{locale === "th" ? "เวลาเริ่ม" : "Start time"}</label>
               <input
                 name="start_time"
                 type="time"
                 defaultValue={effectiveStartTime?.slice(0, 5)}
                 className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
               />
-              <label className="text-xs text-slate-500">ถึง</label>
+              <label className="text-xs text-slate-500">{d.manage?.to ?? "ถึง"}</label>
               <input
                 name="end_time"
                 type="time"
@@ -138,32 +141,32 @@ export default async function SessionPage({
                 className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
               />
               <button className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800" type="submit">
-                บันทึก
+                {d.common.save}
               </button>
             </form>
           ) : (
             <form action={overrideSessionTime} className="flex flex-wrap items-center gap-2">
               <input type="hidden" name="enrollment_id" value={enrollmentId} />
               <input type="hidden" name="date" value={date} />
-              <label className="text-xs text-slate-500">ชั่วโมงวันนี้</label>
+              <label className="text-xs text-slate-500">{locale === "th" ? "ชั่วโมงวันนี้" : "Hours today"}</label>
               <input
                 name="hours"
                 type="number"
                 step="0.5"
                 min="0.5"
                 defaultValue={effectiveHours ?? ""}
-                placeholder="ชม."
+                placeholder={d.manage?.hoursUnit ?? "ชม."}
                 className="w-24 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
               />
               <button className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800" type="submit">
-                บันทึก
+                {d.common.save}
               </button>
             </form>
           )}
 
           {/* Reschedule to another date */}
           <div className="mt-4 border-t border-slate-100 pt-4">
-            <p className="mb-2 text-xs text-slate-500">ย้ายไปวันอื่น (เฉพาะครั้งนี้)</p>
+            <p className="mb-2 text-xs text-slate-500">{locale === "th" ? "ย้ายไปวันอื่น (เฉพาะครั้งนี้)" : "Reschedule (this session only)"}</p>
             <form action={rescheduleSession} className="flex flex-wrap items-center gap-2">
               <input type="hidden" name="enrollment_id" value={enrollmentId} />
               <input type="hidden" name="original_date" value={date} />
@@ -174,7 +177,7 @@ export default async function SessionPage({
                 className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
               />
               <button className="rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700" type="submit">
-                ย้ายวัน
+                {locale === "th" ? "ย้ายวัน" : "Reschedule"}
               </button>
             </form>
           </div>
@@ -186,18 +189,18 @@ export default async function SessionPage({
         {/* Note */}
         {log && (
           <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="mb-3 text-sm font-semibold text-slate-700">บันทึกผล</h2>
+            <h2 className="mb-3 text-sm font-semibold text-slate-700">{d.session.notes}</h2>
             <form action={saveNote} className="flex flex-col gap-2">
               <input type="hidden" name="log_id" value={log.id} />
               <input type="hidden" name="redirect_path" value={redirectPath} />
               <textarea
                 name="note"
-                placeholder="รายงานผลการซ้อม เช่น ทำได้ดีตรงไหน ต้องฝึกอะไรต่อ"
+                placeholder={locale === "th" ? "รายงานผลการซ้อม เช่น ทำได้ดีตรงไหน ต้องฝึกอะไรต่อ" : "Session notes — what went well, what to work on next"}
                 defaultValue={log.note ?? ""}
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
               />
               <button className="self-start rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800" type="submit">
-                บันทึก
+                {d.common.save}
               </button>
             </form>
           </div>
@@ -206,11 +209,11 @@ export default async function SessionPage({
         {/* Media */}
         {log && (
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="mb-3 text-sm font-semibold text-slate-700">คลิป/รูปการบ้าน</h2>
+            <h2 className="mb-3 text-sm font-semibold text-slate-700">{locale === "th" ? "คลิป/รูปการบ้าน" : "Media"}</h2>
             {log.media_url && (
               <p className="mb-3 text-sm">
                 <a href={log.media_url} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">
-                  ดูไฟล์ที่ส่งไว้
+                  {locale === "th" ? "ดูไฟล์ที่ส่งไว้" : "View uploaded file"}
                 </a>
               </p>
             )}
@@ -219,7 +222,7 @@ export default async function SessionPage({
               <input type="hidden" name="redirect_path" value={redirectPath} />
               <input name="file" type="file" accept="image/*,video/*" required className="text-sm" />
               <button className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700" type="submit">
-                อัปโหลด
+                {locale === "th" ? "อัปโหลด" : "Upload"}
               </button>
             </form>
           </div>

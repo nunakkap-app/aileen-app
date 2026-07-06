@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { NavBar } from "@/components/NavBar";
 import { GoalBoard, type SubjectGroup, type Goal } from "@/components/GoalBoard";
+import { getLocale, getDictionary } from "@/lib/locale";
 
 export default async function GoalsPage({
   searchParams,
@@ -9,6 +10,8 @@ export default async function GoalsPage({
   searchParams: Promise<{ child?: string }>;
 }) {
   const { child: childParam } = await searchParams;
+  const locale = await getLocale();
+  const d = await getDictionary(locale);
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) redirect("/login");
@@ -137,10 +140,10 @@ export default async function GoalsPage({
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <NavBar email={auth.user.email ?? ""} isCoach={hasExternalStudents} isParent={isParent} />
+      <NavBar email={auth.user.email ?? ""} isCoach={hasExternalStudents} isParent={isParent} locale={locale} d={d} />
       <main className="mx-auto max-w-2xl px-6 py-10">
         <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-slate-900">เป้าหมาย</h1>
+          <h1 className="text-xl font-semibold text-slate-900">{d.goals.title}</h1>
           {selectedChild && (
             <span className="rounded-full bg-slate-900 px-3 py-1 text-sm text-white">
               {selectedChild.full_name}
@@ -172,11 +175,11 @@ export default async function GoalsPage({
           <div className="mb-6 grid grid-cols-3 gap-3 text-center">
             <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
               <p className="text-2xl font-semibold text-slate-900">{totalGoals - achievedGoals}</p>
-              <p className="text-xs text-slate-500">กำลังดำเนินการ</p>
+              <p className="text-xs text-slate-500">{locale === "th" ? "กำลังดำเนินการ" : "In progress"}</p>
             </div>
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 shadow-sm">
               <p className="text-2xl font-semibold text-emerald-700">{achievedGoals}</p>
-              <p className="text-xs text-emerald-500">บรรลุแล้ว</p>
+              <p className="text-xs text-emerald-500">{locale === "th" ? "บรรลุแล้ว" : "Achieved"}</p>
             </div>
             <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 shadow-sm">
               <p className="text-2xl font-semibold text-indigo-700">{doneMilestones}/{totalMilestones}</p>
@@ -188,7 +191,7 @@ export default async function GoalsPage({
         {selectedChildId ? (
           <GoalBoard subjectGroups={subjectGroups} />
         ) : (
-          <p className="text-sm text-slate-400">ยังไม่มีลูกในระบบ</p>
+          <p className="text-sm text-slate-400">{d.common.noData}</p>
         )}
       </main>
     </div>

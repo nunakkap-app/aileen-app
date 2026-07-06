@@ -1,7 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { NavBar } from "@/components/NavBar";
-import { categoryColor, categoryLabel, modeLabel } from "@/lib/subjects";
+import { categoryColor, categoryLabel } from "@/lib/subjects";
+import { getLocale, getDictionary } from "@/lib/locale";
 
 function getRange(range: "week" | "month") {
   const today = new Date();
@@ -85,6 +86,9 @@ export default async function DashboardPage({
 }: {
   searchParams: Promise<{ range?: string; child?: string }>;
 }) {
+  const locale = await getLocale();
+  const d = await getDictionary(locale);
+
   const { range: rangeParam, child: childParam } = await searchParams;
   const range: "week" | "month" = rangeParam === "month" ? "month" : "week";
   const { start, end } = getRange(range);
@@ -302,10 +306,22 @@ export default async function DashboardPage({
   const totalCostPeriod = costRows.reduce((sum, r) => sum + r.costThisPeriod, 0);
   const totalCostAllTime = costRows.reduce((sum, r) => sum + r.costAllTime, 0);
 
+  const localeTag = locale === "en" ? "en-US" : "th-TH";
   const rangeLabel =
     range === "week"
-      ? `สัปดาห์นี้ (${start.toLocaleDateString("th-TH", { day: "numeric", month: "short" })} - ${end.toLocaleDateString("th-TH", { day: "numeric", month: "short" })})`
-      : `เดือน${start.toLocaleDateString("th-TH", { month: "long", year: "numeric" })}`;
+      ? `${d.dashboard.thisWeek} (${start.toLocaleDateString(localeTag, { day: "numeric", month: "short" })} - ${end.toLocaleDateString(localeTag, { day: "numeric", month: "short" })})`
+      : locale === "en"
+        ? `${d.dashboard.thisMonth} (${start.toLocaleDateString(localeTag, { month: "long", year: "numeric" })})`
+        : `เดือน${start.toLocaleDateString(localeTag, { month: "long", year: "numeric" })}`;
+
+  const subjectLabel: Record<string, string> = {
+    academic: d.subjects?.academic ?? categoryLabel.academic,
+    sports: d.subjects?.sports ?? categoryLabel.sports ?? categoryLabel.sport,
+    sport: d.subjects?.sports ?? categoryLabel.sport,
+    music: d.subjects?.music ?? categoryLabel.music,
+    arts: d.subjects?.arts ?? categoryLabel.arts,
+    other: d.subjects?.other ?? categoryLabel.other,
+  };
 
   function CategorySummary({
     byCategoryActual,
@@ -322,19 +338,20 @@ export default async function DashboardPage({
           const planned = byCategoryPlanned.get(cat) ?? { lesson: 0, practice: 0 };
           const actualTotal = actual.lesson + actual.practice;
           const plannedTotal = planned.lesson + planned.practice;
+          const label = subjectLabel[cat] ?? categoryLabel[cat];
           return (
             <div key={cat} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <p className={`mb-1 inline-flex items-center gap-1.5 text-sm font-medium ${colors.text}`}>
-                <span className={`h-2 w-2 rounded-full ${colors.dot}`} /> {categoryLabel[cat]}
+                <span className={`h-2 w-2 rounded-full ${colors.dot}`} /> {label}
               </p>
               <p className="text-3xl font-semibold text-slate-900">
                 {formatHours(actualTotal)}
                 <span className="text-base font-normal text-slate-400"> / {formatHours(plannedTotal)} ชม.</span>
               </p>
-              <p className="mt-1 text-xs text-slate-500">ทำไปแล้ว / ตารางที่ตั้งไว้</p>
+              <p className="mt-1 text-xs text-slate-500">{d.dashboard.done} / {d.dashboard.planned}</p>
               <p className="mt-2 text-xs text-slate-500">
-                {modeLabel.lesson}: {formatHours(actual.lesson)}/{formatHours(planned.lesson)} ชม. ·{" "}
-                {modeLabel.practice}: {formatHours(actual.practice)}/{formatHours(planned.practice)} ชม.
+                {d.dashboard.lesson}: {formatHours(actual.lesson)}/{formatHours(planned.lesson)} ชม. ·{" "}
+                {d.dashboard.practice}: {formatHours(actual.practice)}/{formatHours(planned.practice)} ชม.
               </p>
             </div>
           );
@@ -345,22 +362,22 @@ export default async function DashboardPage({
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <NavBar email={auth.user.email ?? ""} isCoach={hasExternalStudents} isParent={isParent} />
+      <NavBar email={auth.user.email ?? ""} isCoach={hasExternalStudents} isParent={isParent} locale={locale} d={d} />
       <main className="mx-auto max-w-3xl px-6 py-10">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-xl font-semibold text-slate-900">แดชบอร์ด</h1>
+          <h1 className="text-xl font-semibold text-slate-900">{d.dashboard.title}</h1>
           <div className="flex gap-2 text-sm">
             <a
               href="/dashboard?range=week"
               className={`rounded-full px-3 py-1.5 ${range === "week" ? "bg-slate-900 text-white" : "border border-slate-200 bg-white text-slate-600"}`}
             >
-              สัปดาห์นี้
+              {d.dashboard.thisWeek}
             </a>
             <a
               href="/dashboard?range=month"
               className={`rounded-full px-3 py-1.5 ${range === "month" ? "bg-slate-900 text-white" : "border border-slate-200 bg-white text-slate-600"}`}
             >
-              เดือนนี้
+              {d.dashboard.thisMonth}
             </a>
           </div>
         </div>
@@ -372,7 +389,7 @@ export default async function DashboardPage({
               href={`/dashboard?range=${range}`}
               className={`rounded-full px-3 py-1.5 ${!selectedChildId ? "bg-slate-900 text-white" : "border border-slate-200 bg-white text-slate-600"}`}
             >
-              ทั้งหมด
+              {d.dashboard.all}
             </a>
             {children.map((c) => (
               <a
@@ -389,7 +406,11 @@ export default async function DashboardPage({
         {isParent && (
           <section className="mb-10">
             <h2 className="mb-3 text-sm font-semibold text-slate-500">
-              ชั่วโมงเรียน/ซ้อม{selectedChildId ? `ของ${children?.find((c) => c.id === selectedChildId)?.full_name}` : "ของลูก"} แยกตามหมวด
+              {selectedChildId
+                ? (locale === "en"
+                    ? `${children?.find((c) => c.id === selectedChildId)?.full_name ?? ""}'s ${d.dashboard.childHours}`
+                    : `ชั่วโมงเรียน/ซ้อมของ${children?.find((c) => c.id === selectedChildId)?.full_name} แยกตามหมวด`)
+                : d.dashboard.childHours}
             </h2>
             <CategorySummary byCategoryActual={parentSummary!.byCategoryActual} byCategoryPlanned={parentSummary!.byCategoryPlanned} />
             {!!parentSummary!.byChild.size && (
@@ -400,14 +421,14 @@ export default async function DashboardPage({
               </div>
             )}
             {!parentSummary!.byChild.size && (
-              <p className="mt-4 text-sm text-slate-400">ยังไม่มีการบันทึกเวลาในช่วงนี้</p>
+              <p className="mt-4 text-sm text-slate-400">{d.dashboard.noLogs}</p>
             )}
           </section>
         )}
 
         {isCoach && (
           <section className="mb-10">
-            <h2 className="mb-3 text-sm font-semibold text-slate-500">ชั่วโมงที่สอน แยกตามหมวด</h2>
+            <h2 className="mb-3 text-sm font-semibold text-slate-500">{d.dashboard.coachHours}</h2>
             <CategorySummary byCategoryActual={coachSummary!.byCategoryActual} byCategoryPlanned={coachSummary!.byCategoryPlanned} />
             {!!coachSummary!.byChild.size && (
               <div className="mt-4 flex flex-col gap-1 text-sm text-slate-600">
@@ -417,7 +438,7 @@ export default async function DashboardPage({
               </div>
             )}
             {!coachSummary!.byChild.size && (
-              <p className="mt-4 text-sm text-slate-400">ยังไม่มีการบันทึกเวลาในช่วงนี้</p>
+              <p className="mt-4 text-sm text-slate-400">{d.dashboard.noLogs}</p>
             )}
           </section>
         )}
@@ -425,7 +446,7 @@ export default async function DashboardPage({
         {/* Cost report — parent only */}
         {isParent && costRows.length > 0 && (
           <section className="mb-10">
-            <h2 className="mb-3 text-sm font-semibold text-slate-500">ค่าใช้จ่าย</h2>
+            <h2 className="mb-3 text-sm font-semibold text-slate-500">{d.dashboard.cost}</h2>
 
             {/* Summary totals */}
             <div className="mb-4 grid grid-cols-2 gap-3">
@@ -435,16 +456,16 @@ export default async function DashboardPage({
                   ฿{totalCostPeriod.toLocaleString()}
                 </p>
                 <p className="mt-0.5 text-xs text-amber-500">
-                  {costRows.reduce((s, r) => s + r.sessionsDonePeriod, 0)} ครั้ง
+                  {costRows.reduce((s, r) => s + r.sessionsDonePeriod, 0)} {d.dashboard.sessions}
                 </p>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <p className="mb-1 text-xs font-medium text-slate-500">สะสมทั้งหมด</p>
+                <p className="mb-1 text-xs font-medium text-slate-500">{d.dashboard.costAllTime}</p>
                 <p className="text-2xl font-semibold text-slate-800">
                   ฿{totalCostAllTime.toLocaleString()}
                 </p>
                 <p className="mt-0.5 text-xs text-slate-400">
-                  {costRows.reduce((s, r) => s + r.sessionsDoneAllTime, 0)} ครั้ง
+                  {costRows.reduce((s, r) => s + r.sessionsDoneAllTime, 0)} {d.dashboard.sessions}
                 </p>
               </div>
             </div>
@@ -465,15 +486,15 @@ export default async function DashboardPage({
                       {r.pricingType === "course" ? (
                         <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">Course</span>
                       ) : (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">รายครั้ง</span>
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">{d.dashboard.perSession}</span>
                       )}
                     </div>
 
                     {r.pricingType === "course" && r.totalSessions ? (
                       <div className="mt-3">
                         <div className="mb-1 flex items-center justify-between text-xs text-slate-600">
-                          <span className="font-medium">{r.sessionsDoneAllTime}/{r.totalSessions} ครั้ง</span>
-                          <span className="text-slate-400">฿{r.pricePerSession.toLocaleString()}/ครั้ง</span>
+                          <span className="font-medium">{r.sessionsDoneAllTime}/{r.totalSessions} {d.dashboard.sessions}</span>
+                          <span className="text-slate-400">฿{r.pricePerSession.toLocaleString()}/{d.dashboard.sessions}</span>
                         </div>
                         <div className="h-2 overflow-hidden rounded-full bg-slate-100">
                           <div
@@ -482,28 +503,28 @@ export default async function DashboardPage({
                           />
                         </div>
                         <div className="mt-1.5 flex items-center justify-between text-xs">
-                          <span className="text-slate-400">เหลือ {r.totalSessions - r.sessionsDoneAllTime} ครั้ง</span>
+                          <span className="text-slate-400">{d.dashboard.remaining} {r.totalSessions - r.sessionsDoneAllTime} {d.dashboard.sessions}</span>
                           {r.totalPrice && (
-                            <span className="font-medium text-indigo-700">฿{r.totalPrice.toLocaleString()} รวมทั้ง course</span>
+                            <span className="font-medium text-indigo-700">฿{r.totalPrice.toLocaleString()} {d.dashboard.total}</span>
                           )}
                         </div>
                         {r.sessionsDonePeriod > 0 && (
                           <p className="mt-2 text-xs text-slate-500">
-                            {rangeLabel}: {r.sessionsDonePeriod} ครั้ง · ฿{r.costThisPeriod.toLocaleString()}
+                            {rangeLabel}: {r.sessionsDonePeriod} {d.dashboard.sessions} · ฿{r.costThisPeriod.toLocaleString()}
                           </p>
                         )}
                       </div>
                     ) : (
                       <div className="mt-2">
-                        <p className="text-sm font-semibold text-amber-700">฿{r.pricePerSession.toLocaleString()}/ครั้ง</p>
+                        <p className="text-sm font-semibold text-amber-700">฿{r.pricePerSession.toLocaleString()}/{d.dashboard.sessions}</p>
                         <div className="mt-1 flex flex-wrap gap-x-4 text-xs text-slate-500">
                           <span>
                             {rangeLabel}:{" "}
-                            <strong className="text-slate-700">{r.sessionsDonePeriod} ครั้ง · ฿{r.costThisPeriod.toLocaleString()}</strong>
+                            <strong className="text-slate-700">{r.sessionsDonePeriod} {d.dashboard.sessions} · ฿{r.costThisPeriod.toLocaleString()}</strong>
                           </span>
                           <span>
-                            รวม:{" "}
-                            <strong className="text-slate-700">{r.sessionsDoneAllTime} ครั้ง · ฿{r.costAllTime.toLocaleString()}</strong>
+                            {locale === "en" ? "Total" : "รวม"}:{" "}
+                            <strong className="text-slate-700">{r.sessionsDoneAllTime} {d.dashboard.sessions} · ฿{r.costAllTime.toLocaleString()}</strong>
                           </span>
                         </div>
                       </div>
@@ -516,7 +537,7 @@ export default async function DashboardPage({
         )}
 
         <a href="/dashboard/manage" className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:underline">
-          ไปจัดการตาราง/ลูก/การบ้าน ›
+          {d.dashboard.manageLink}
         </a>
       </main>
     </div>

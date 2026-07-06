@@ -9,6 +9,8 @@ type Props = {
   title: string;
   description: string | null;
   suggestedMinutes: number | null;
+  locale: "th" | "en";
+  t: Record<string, string>;
 };
 
 function fmt(seconds: number) {
@@ -17,7 +19,7 @@ function fmt(seconds: number) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-export function ChildTimerUI({ assignmentId, enrollmentId, title, description, suggestedMinutes }: Props) {
+export function ChildTimerUI({ assignmentId, enrollmentId, title, description, suggestedMinutes, locale: _locale, t }: Props) {
   const [elapsed, setElapsed] = useState(0);
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
@@ -38,21 +40,18 @@ export function ChildTimerUI({ assignmentId, enrollmentId, title, description, s
 
   return (
     <div className="flex min-h-screen flex-col items-center bg-gradient-to-b from-indigo-50 to-white px-6 pt-10">
-      {/* Back */}
       <div className="mb-6 w-full max-w-sm">
-        <a href="/child" className="text-sm text-slate-400 hover:text-slate-600">← กลับ</a>
+        <a href="/child" className="text-sm text-slate-400 hover:text-slate-600">← {_locale === "en" ? "Back" : "กลับ"}</a>
       </div>
 
-      {/* Title */}
       <div className="mb-8 w-full max-w-sm text-center">
         <h1 className="text-xl font-bold text-slate-900">{title}</h1>
         {description && <p className="mt-1 text-sm text-slate-500 line-clamp-2">{description}</p>}
         {suggestedMinutes && (
-          <p className="mt-1 text-xs text-slate-400">เป้าหมาย {suggestedMinutes} นาที</p>
+          <p className="mt-1 text-xs text-slate-400">{t.suggested} {suggestedMinutes} {t.minutes}</p>
         )}
       </div>
 
-      {/* Timer circle */}
       <div className="relative mb-8 flex h-52 w-52 items-center justify-center">
         <svg className="absolute inset-0 -rotate-90" viewBox="0 0 200 200">
           <circle cx="100" cy="100" r="88" fill="none" stroke="#e2e8f0" strokeWidth="10" />
@@ -78,7 +77,6 @@ export function ChildTimerUI({ assignmentId, enrollmentId, title, description, s
         </div>
       </div>
 
-      {/* Controls */}
       {!done ? (
         <div className="flex w-full max-w-sm flex-col gap-3">
           <button
@@ -89,7 +87,7 @@ export function ChildTimerUI({ assignmentId, enrollmentId, title, description, s
                 : "bg-indigo-600 text-white hover:bg-indigo-700"
             }`}
           >
-            {running ? "⏸ หยุดชั่วคราว" : elapsed === 0 ? "▶ เริ่มซ้อม" : "▶ ซ้อมต่อ"}
+            {running ? `⏸ ${t.pause}` : elapsed === 0 ? `▶ ${t.start}` : `▶ ${t.resume}`}
           </button>
 
           {elapsed > 0 && (
@@ -102,7 +100,7 @@ export function ChildTimerUI({ assignmentId, enrollmentId, title, description, s
                 onClick={() => setDone(true)}
                 className="w-full rounded-2xl border border-slate-200 bg-white py-4 text-lg font-semibold text-slate-700 hover:bg-slate-50"
               >
-                ✅ จบการซ้อม บันทึกเวลา
+                ✅ {t.finish}
               </button>
             </form>
           )}
@@ -110,7 +108,7 @@ export function ChildTimerUI({ assignmentId, enrollmentId, title, description, s
       ) : (
         <div className="flex flex-col items-center gap-2 text-center">
           <p className="text-2xl">🎉</p>
-          <p className="text-base font-semibold text-slate-800">บันทึกแล้ว {fmt(elapsed)}</p>
+          <p className="text-base font-semibold text-slate-800">{t.elapsed} {fmt(elapsed)}</p>
           <p className="text-sm text-slate-400">กำลังกลับหน้าหลัก...</p>
         </div>
       )}
