@@ -31,10 +31,25 @@ export async function inviteParent(formData: FormData) {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return;
 
+  const inviteeEmail = (formData.get("invitee_email") as string).trim().toLowerCase();
+  const childId = formData.get("child_id") as string;
+
+  // Block self-invitation
+  if (inviteeEmail === auth.user.email?.toLowerCase()) return;
+
+  // Block if already a guardian
+  const { data: existing } = await supabase
+    .from("child_guardians")
+    .select("child_id")
+    .eq("child_id", childId)
+    .eq("user_id", (await supabase.from("profiles").select("id").eq("email", inviteeEmail).maybeSingle()).data?.id ?? "")
+    .maybeSingle();
+  if (existing) return;
+
   await supabase.from("parent_invitations").insert({
-    child_id: formData.get("child_id") as string,
+    child_id: childId,
     invited_by: auth.user.id,
-    invitee_email: formData.get("invitee_email") as string,
+    invitee_email: inviteeEmail,
   });
 
   revalidatePath("/dashboard/manage");
