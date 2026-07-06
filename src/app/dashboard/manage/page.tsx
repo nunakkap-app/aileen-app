@@ -395,7 +395,6 @@ export default async function ManagePage({
                     childId={c.id}
                     childName={c.full_name}
                     username={c.username}
-                    isOnline={false}
                   />
                 </div>
               ))}
