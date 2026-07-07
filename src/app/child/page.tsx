@@ -114,7 +114,7 @@ export default async function ChildHomePage({
       subjects(name),
       practice_schedules(id, weekdays, hours_per_session, start_date, end_date),
       lesson_schedules(id, weekday, start_time, end_time, start_date, end_date),
-      assignments(id, title, description, suggested_minutes, suggested_weekdays, status, submissions(status))
+      assignments(id, title, description, suggested_minutes, suggested_weekdays, status, submissions(status, last_practiced_date, submitted_at))
     `)
     .eq("child_id", childId);
 
@@ -233,17 +233,23 @@ export default async function ChildHomePage({
           ) : (
             <div className="flex flex-col gap-2">
               {homework.map((a) => {
-                const sub = a.submissions?.[0];
-                const submitted = sub?.status === "submitted";
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const sub = (a.submissions as any[])?.[0];
+                const todayDateStr = dateStr(today);
+                const isRecurring = (a.suggested_weekdays as number[])?.length > 0;
+                const practicedToday = sub?.last_practiced_date === todayDateStr;
+                const submittedToday = sub?.submitted_at?.slice(0, 10) === todayDateStr;
+                // recurring: done only counts today; one-time: done permanently
+                const showAsDone = isRecurring ? (practicedToday || submittedToday) : sub?.status === "submitted";
                 return (
                   <a key={a.id} href={`/dashboard/homework/${a.id}`}
-                    className={`block rounded-xl border p-3 transition-colors hover:border-indigo-200 ${submitted ? "border-emerald-100 bg-emerald-50" : "border-slate-200 bg-white"}`}>
+                    className={`block rounded-xl border p-3 transition-colors hover:border-indigo-200 ${showAsDone ? "border-emerald-100 bg-emerald-50" : "border-slate-200 bg-white"}`}>
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <p className={`text-sm font-medium ${submitted ? "text-slate-400 line-through" : "text-slate-900"}`}>{a.title}</p>
+                        <p className={`text-sm font-medium ${showAsDone ? "text-slate-400 line-through" : "text-slate-900"}`}>{a.title}</p>
                         <p className="text-xs text-slate-400">{a.subjectName}</p>
                       </div>
-                      {submitted
+                      {showAsDone
                         ? <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">{d.child.submitted}</span>
                         : <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-400" />}
                     </div>
