@@ -187,7 +187,7 @@ export default async function DashboardPage({
 
     const { data: logs } = await supabase
       .from("practice_logs")
-      .select("elapsed_seconds, enrollment_id")
+      .select("elapsed_seconds, enrollment_id, log_type")
       .in("enrollment_id", ids)
       .gte("log_date", startStr)
       .lte("log_date", endStr);
@@ -199,7 +199,9 @@ export default async function DashboardPage({
       if (!e) return;
       const cat = getCategory(e);
       const entry = byCategoryActual.get(cat) ?? { lesson: 0, practice: 0 };
-      entry[e.mode] += log.elapsed_seconds;
+      // homework time always counts as practice; session time follows enrollment mode
+      const bucket: "lesson" | "practice" = log.log_type === "homework" ? "practice" : e.mode;
+      entry[bucket] += log.elapsed_seconds;
       byCategoryActual.set(cat, entry);
 
       const childEntry = byChild.get(e.child_id) ?? { name: getChildName(e), seconds: 0 };

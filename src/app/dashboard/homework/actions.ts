@@ -128,12 +128,12 @@ export async function markHomeworkSubmitted(formData: FormData) {
   if (existing) {
     await supabase
       .from("practice_logs")
-      .update({ status: "done", elapsed_seconds: (existing.elapsed_seconds ?? 0) + elapsed, running_since: null })
+      .update({ status: "done", elapsed_seconds: (existing.elapsed_seconds ?? 0) + elapsed, running_since: null, log_type: "homework" })
       .eq("id", existing.id);
   } else {
     await supabase
       .from("practice_logs")
-      .insert({ enrollment_id: assignment.enrollment_id, log_date: today, status: "done", elapsed_seconds: elapsed });
+      .insert({ enrollment_id: assignment.enrollment_id, log_date: today, status: "done", elapsed_seconds: elapsed, log_type: "homework" });
   }
 
   revalidatePath(formData.get("redirect_path") as string);

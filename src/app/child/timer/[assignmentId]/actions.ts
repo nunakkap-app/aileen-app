@@ -29,12 +29,12 @@ export async function saveChildPractice(formData: FormData) {
   if (existing) {
     await supabase
       .from("practice_logs")
-      .update({ status: "done", elapsed_seconds: (existing.elapsed_seconds ?? 0) + elapsedSeconds, running_since: null })
+      .update({ status: "done", elapsed_seconds: (existing.elapsed_seconds ?? 0) + elapsedSeconds, running_since: null, log_type: "homework" })
       .eq("id", existing.id);
   } else {
     await supabase
       .from("practice_logs")
-      .insert({ enrollment_id: enrollmentId, log_date: today, status: "done", elapsed_seconds: elapsedSeconds });
+      .insert({ enrollment_id: enrollmentId, log_date: today, status: "done", elapsed_seconds: elapsedSeconds, log_type: "homework" });
   }
 
   // Mark assignment as practiced today
