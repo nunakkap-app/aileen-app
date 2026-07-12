@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 
 function getBangkokDateStr() {
   const d = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
@@ -53,5 +54,6 @@ export async function saveChildPractice(formData: FormData) {
         }),
   ]);
 
-  redirect("/child");
+  revalidatePath("/child");
+  revalidatePath("/dashboard");
 }

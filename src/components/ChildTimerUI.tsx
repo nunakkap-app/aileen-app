@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { saveChildPractice } from "@/app/child/timer/[assignmentId]/actions";
 
 type Props = {
@@ -23,7 +24,33 @@ export function ChildTimerUI({ assignmentId, enrollmentId, title, description, s
   const [elapsed, setElapsed] = useState(0);
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
+  const [error, setError] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [, startTransition] = useTransition();
+  const router = useRouter();
+
+  function finish() {
+    setRunning(false);
+    setDone(true);
+    const fd = new FormData();
+    fd.set("assignment_id", assignmentId);
+    fd.set("enrollment_id", enrollmentId);
+    fd.set("elapsed_seconds", String(elapsed));
+    startTransition(async () => {
+      try {
+        await saveChildPractice(fd);
+        router.push("/child");
+      } catch (err) {
+        // Next.js redirect() throws internally — that means success; navigate
+        if (err && typeof err === "object" && "digest" in err && String((err as { digest: string }).digest).startsWith("NEXT_REDIRECT")) {
+          router.push("/child");
+        } else {
+          setError(true);
+          setDone(false);
+        }
+      }
+    });
+  }
 
   useEffect(() => {
     if (running) {
@@ -91,18 +118,18 @@ export function ChildTimerUI({ assignmentId, enrollmentId, title, description, s
           </button>
 
           {elapsed > 0 && (
-            <form action={saveChildPractice}>
-              <input type="hidden" name="assignment_id" value={assignmentId} />
-              <input type="hidden" name="enrollment_id" value={enrollmentId} />
-              <input type="hidden" name="elapsed_seconds" value={elapsed} />
-              <button
-                type="submit"
-                onClick={() => setDone(true)}
-                className="w-full rounded-2xl border border-slate-200 bg-white py-4 text-lg font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                ✅ {t.finish}
-              </button>
-            </form>
+            <button
+              type="button"
+              onClick={finish}
+              className="w-full rounded-2xl border border-slate-200 bg-white py-4 text-lg font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              ✅ {t.finish}
+            </button>
+          )}
+          {error && (
+            <p className="text-center text-sm text-red-500">
+              {_locale === "en" ? "Save failed — please try again" : "บันทึกไม่สำเร็จ — ลองกดใหม่อีกครั้ง"}
+            </p>
           )}
         </div>
       ) : (
