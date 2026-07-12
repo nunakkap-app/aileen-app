@@ -86,54 +86,39 @@ export async function markHomeworkSubmitted(formData: FormData) {
   const submissionId = formData.get("submission_id") as string;
   const assignmentId = formData.get("assignment_id") as string;
 
-  // Mark submitted
-  await supabase
-    .from("submissions")
-    .update({ status: "submitted", submitted_at: new Date().toISOString() })
-    .eq("id", submissionId);
-
-  // Resolve elapsed seconds: use timer if done, else fall back to suggested_minutes
-  const sub = await getSubmission(supabase, submissionId);
-  const { data: assignment } = await supabase
-    .from("assignments")
-    .select("enrollment_id, suggested_minutes")
-    .eq("id", assignmentId)
-    .single();
-
-  if (!assignment?.enrollment_id) {
-    revalidatePath(formData.get("redirect_path") as string);
-    revalidatePath("/dashboard/manage");
-    return;
-  }
+  // Run in parallel: mark submitted + fetch data needed for the practice log
+  const [, { data: sub }, { data: assignment }] = await Promise.all([
+    supabase
+      .from("submissions")
+      .update({ status: "submitted", submitted_at: new Date().toISOString() })
+      .eq("id", submissionId),
+    supabase.from("submissions").select("elapsed_seconds").eq("id", submissionId).single(),
+    supabase.from("assignments").select("enrollment_id, suggested_minutes").eq("id", assignmentId).single(),
+  ]);
 
   const elapsed = (sub?.elapsed_seconds ?? 0) > 0
     ? sub!.elapsed_seconds
-    : (assignment.suggested_minutes ?? 0) * 60;
+    : (assignment?.suggested_minutes ?? 0) * 60;
 
-  if (elapsed <= 0) {
-    revalidatePath(formData.get("redirect_path") as string);
-    revalidatePath("/dashboard/manage");
-    return;
-  }
-
-  // Upsert practice_log for today
-  const today = getBangkokDateStr();
-  const { data: existing } = await supabase
-    .from("practice_logs")
-    .select("id, elapsed_seconds")
-    .eq("enrollment_id", assignment.enrollment_id)
-    .eq("log_date", today)
-    .maybeSingle();
-
-  if (existing) {
-    await supabase
+  if (assignment?.enrollment_id && elapsed > 0) {
+    const today = getBangkokDateStr();
+    const { data: existing } = await supabase
       .from("practice_logs")
-      .update({ status: "done", elapsed_seconds: (existing.elapsed_seconds ?? 0) + elapsed, running_since: null, log_type: "homework" })
-      .eq("id", existing.id);
-  } else {
-    await supabase
-      .from("practice_logs")
-      .insert({ enrollment_id: assignment.enrollment_id, log_date: today, status: "done", elapsed_seconds: elapsed, log_type: "homework" });
+      .select("id, elapsed_seconds")
+      .eq("enrollment_id", assignment.enrollment_id)
+      .eq("log_date", today)
+      .maybeSingle();
+
+    if (existing) {
+      await supabase
+        .from("practice_logs")
+        .update({ status: "done", elapsed_seconds: (existing.elapsed_seconds ?? 0) + elapsed, running_since: null, log_type: "homework" })
+        .eq("id", existing.id);
+    } else {
+      await supabase
+        .from("practice_logs")
+        .insert({ enrollment_id: assignment.enrollment_id, log_date: today, status: "done", elapsed_seconds: elapsed, log_type: "homework" });
+    }
   }
 
   revalidatePath(formData.get("redirect_path") as string);
