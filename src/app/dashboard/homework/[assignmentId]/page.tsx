@@ -49,10 +49,18 @@ export default async function HomeworkDetailPage({
 
   const submission = (assignment.submissions as { id: string; status: string; content: string | null; media_url: string | null; timer_status: string; elapsed_seconds: number; running_since: string | null; submitted_at: string | null; last_practiced_date: string | null }[] | null)?.[0];
 
-  const today = new Date().toISOString().slice(0, 10);
+  const bkkNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
+  const today = `${bkkNow.getFullYear()}-${String(bkkNow.getMonth() + 1).padStart(2, "0")}-${String(bkkNow.getDate()).padStart(2, "0")}`;
   const practicedToday = submission?.last_practiced_date === today;
   const redirectPath = `/dashboard/homework/${assignmentId}`;
   const colors = categoryColor[category] ?? categoryColor.academic;
+
+  // Recurring homework resets daily: treat as submitted only if submitted today
+  const isRecurring = (assignment.suggested_weekdays?.length ?? 0) > 0;
+  const submittedToday = submission?.submitted_at?.slice(0, 10) === today;
+  const panelSubmission = submission && isRecurring && submission.status === "submitted" && !submittedToday
+    ? { ...submission, status: "practicing" }
+    : submission;
 
   const isOverdue = assignment.due_date && new Date(assignment.due_date) < new Date() && submission?.status !== "submitted";
   const isChild = auth.user.user_metadata?.is_child === true;
@@ -200,9 +208,9 @@ export default async function HomeworkDetailPage({
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="mb-4 text-sm font-semibold text-slate-700">{d.homework.submitSection}</h2>
-          {submission ? (
+          {panelSubmission ? (
             <HomeworkSubmissionPanel
-              submission={submission}
+              submission={panelSubmission}
               assignmentId={assignmentId}
               redirectPath={redirectPath}
             />

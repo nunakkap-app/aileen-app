@@ -86,22 +86,36 @@ export async function markHomeworkSubmitted(formData: FormData) {
   const submissionId = formData.get("submission_id") as string;
   const assignmentId = formData.get("assignment_id") as string;
 
-  // Run in parallel: mark submitted + fetch data needed for the practice log
-  const [, { data: sub }, { data: assignment }] = await Promise.all([
-    supabase
-      .from("submissions")
-      .update({ status: "submitted", submitted_at: new Date().toISOString() })
-      .eq("id", submissionId),
-    supabase.from("submissions").select("elapsed_seconds").eq("id", submissionId).single(),
-    supabase.from("assignments").select("enrollment_id, suggested_minutes").eq("id", assignmentId).single(),
+  const today = getBangkokDateStr();
+
+  // Run in parallel: fetch timer state + assignment info
+  const [{ data: sub }, { data: assignment }] = await Promise.all([
+    supabase.from("submissions").select("elapsed_seconds, running_since").eq("id", submissionId).single(),
+    supabase.from("assignments").select("enrollment_id, suggested_minutes, suggested_weekdays").eq("id", assignmentId).single(),
   ]);
 
-  const elapsed = (sub?.elapsed_seconds ?? 0) > 0
-    ? sub!.elapsed_seconds
-    : (assignment?.suggested_minutes ?? 0) * 60;
+  // Include time from a still-running timer so submitting without pressing stop still counts
+  const runningExtra = sub?.running_since
+    ? Math.floor((Date.now() - new Date(sub.running_since).getTime()) / 1000)
+    : 0;
+  const timerSeconds = (sub?.elapsed_seconds ?? 0) + runningExtra;
+  const elapsed = timerSeconds > 0 ? timerSeconds : (assignment?.suggested_minutes ?? 0) * 60;
+
+  const isRecurring = !!assignment?.suggested_weekdays?.length;
+
+  // Mark submitted; for recurring homework also reset the timer so tomorrow starts fresh
+  // (time already transferred to practice_logs below — prevents double counting)
+  await supabase
+    .from("submissions")
+    .update({
+      status: "submitted",
+      submitted_at: new Date().toISOString(),
+      last_practiced_date: today,
+      ...(isRecurring ? { elapsed_seconds: 0, timer_status: "idle", running_since: null } : {}),
+    })
+    .eq("id", submissionId);
 
   if (assignment?.enrollment_id && elapsed > 0) {
-    const today = getBangkokDateStr();
     const { data: existing } = await supabase
       .from("practice_logs")
       .select("id, elapsed_seconds")

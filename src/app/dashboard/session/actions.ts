@@ -241,11 +241,10 @@ export async function practiceHomeworkToday(formData: FormData) {
   const uncheck = formData.get("uncheck") === "1";
   const redirectPath = (formData.get("redirect_path") as string) || `/dashboard/session/${enrollmentId}/${date}`;
 
-  const { data: existing } = await supabase
-    .from("submissions")
-    .select("id")
-    .eq("assignment_id", assignmentId)
-    .maybeSingle();
+  const [{ data: existing }, { data: assignment }] = await Promise.all([
+    supabase.from("submissions").select("id").eq("assignment_id", assignmentId).maybeSingle(),
+    supabase.from("assignments").select("suggested_minutes").eq("id", assignmentId).single(),
+  ]);
 
   if (existing) {
     await supabase
@@ -259,6 +258,35 @@ export async function practiceHomeworkToday(formData: FormData) {
       last_practiced_date: date,
       submitted_by: auth.user.id,
     });
+  }
+
+  // Ticking "practiced today" also logs the suggested time; unticking removes it
+  const suggestedSeconds = (assignment?.suggested_minutes ?? 0) * 60;
+  if (enrollmentId && suggestedSeconds > 0) {
+    const { data: log } = await supabase
+      .from("practice_logs")
+      .select("id, elapsed_seconds")
+      .eq("enrollment_id", enrollmentId)
+      .eq("log_date", date)
+      .maybeSingle();
+
+    if (uncheck) {
+      if (log) {
+        await supabase
+          .from("practice_logs")
+          .update({ elapsed_seconds: Math.max(0, (log.elapsed_seconds ?? 0) - suggestedSeconds) })
+          .eq("id", log.id);
+      }
+    } else if (log) {
+      await supabase
+        .from("practice_logs")
+        .update({ status: "done", elapsed_seconds: (log.elapsed_seconds ?? 0) + suggestedSeconds, log_type: "homework" })
+        .eq("id", log.id);
+    } else {
+      await supabase
+        .from("practice_logs")
+        .insert({ enrollment_id: enrollmentId, log_date: date, status: "done", elapsed_seconds: suggestedSeconds, log_type: "homework" });
+    }
   }
 
   revalidatePath(redirectPath);
